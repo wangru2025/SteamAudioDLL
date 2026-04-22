@@ -96,7 +96,7 @@ class TestPerformance:
                 params = steamaudio.SpatializationParams()
                 
                 def mock_process(handle, input_ptr, frames, output_ptr, output_frames, c_params):
-                    output_frames.contents = frames
+                    output_frames.contents.value = frames
                     return None
                 
                 mock_lib.audio_processor_process.side_effect = mock_process
@@ -156,7 +156,7 @@ class TestPerformance:
                 params = steamaudio.SpatializationParams()
                 
                 def mock_process(handle, input_ptr, frames, output_ptr, output_frames, c_params):
-                    output_frames.contents = frames
+                    output_frames.contents.value = frames
                     return None
                 
                 mock_lib.audio_processor_process.side_effect = mock_process
@@ -205,7 +205,7 @@ class TestBatchProcessing:
                 params = steamaudio.SpatializationParams()
                 
                 def mock_process(handle, input_ptr, frames, output_ptr, output_frames, c_params):
-                    output_frames.contents = frames
+                    output_frames.contents.value = frames
                     return None
                 
                 mock_lib.audio_processor_process.side_effect = mock_process
@@ -236,9 +236,9 @@ class TestBatchProcessing:
                 mixer.add_source(0, input_channels=1)
                 mixer.add_source(1, input_channels=1)
                 
-                def mock_process(handle, input_ptrs, frame_counts, num_sources,
+                def mock_process(handle, source_ids, input_ptrs, frame_counts, num_sources,
                                output_ptr, output_frames, c_params):
-                    output_frames.contents = frame_counts[0]
+                    output_frames.contents.value = frame_counts[0]
                     return None
                 
                 mock_lib.audio_mixer_process.side_effect = mock_process

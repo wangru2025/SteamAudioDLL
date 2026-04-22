@@ -55,7 +55,7 @@ class TestAudioProcessor:
                 
                 # Mock the process call to set output_frame_count
                 def mock_process(handle, input_ptr, frames, output_ptr, output_frames, c_params):
-                    output_frames.contents = 1024
+                    output_frames.contents.value = 1024
                     return None
                 
                 mock_lib.audio_processor_process.side_effect = mock_process
@@ -81,7 +81,7 @@ class TestAudioProcessor:
                 params = steamaudio.SpatializationParams()
                 
                 def mock_process(handle, input_ptr, frames, output_ptr, output_frames, c_params):
-                    output_frames.contents = 1024
+                    output_frames.contents.value = 1024
                     return None
                 
                 mock_lib.audio_processor_process.side_effect = mock_process
@@ -169,7 +169,7 @@ class TestAudioProcessor:
                 params = steamaudio.SpatializationParams()
                 
                 def mock_process(handle, input_ptr, frames, output_ptr, output_frames, c_params):
-                    output_frames.contents = 4
+                    output_frames.contents.value = 4
                     return None
                 
                 mock_lib.audio_processor_process.side_effect = mock_process
@@ -305,9 +305,9 @@ class TestAudioMixer:
                 sources_data = {0: audio1, 1: audio2}
                 params = {0: params1, 1: params2}
                 
-                def mock_process(handle, input_ptrs, frame_counts, num_sources, 
+                def mock_process(handle, source_ids, input_ptrs, frame_counts, num_sources,
                                output_ptr, output_frames, c_params):
-                    output_frames.contents = 1024
+                    output_frames.contents.value = 1024
                     return None
                 
                 mock_lib.audio_mixer_process.side_effect = mock_process

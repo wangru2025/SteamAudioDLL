@@ -2,9 +2,12 @@
 #include "phonon_wrapper.h"
 #include <cmath>
 #include <algorithm>
+#include <stdexcept>
 
 RoomReverb::RoomReverb() {
-    initialize_effects();
+    if (!initialize_effects()) {
+        throw std::runtime_error("Failed to initialize room reverb effect");
+    }
 }
 
 RoomReverb::~RoomReverb() {

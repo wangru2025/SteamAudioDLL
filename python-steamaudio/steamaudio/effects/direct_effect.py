@@ -4,8 +4,14 @@ import numpy as np
 from typing import Optional, Union
 from ..core.context import Context
 from ..core.exceptions import AudioProcessingError, InvalidParameterError
-from ..bindings.loader import get_library
-from ..bindings.ctypes_bindings import DirectEffectHandle
+from ..bindings import loader
+from ..bindings.ctypes_bindings import (
+    DirectEffectHandle,
+    DIRECT_EFFECT_APPLY_AIR_ABSORPTION,
+    DIRECT_EFFECT_APPLY_DISTANCE_ATTENUATION,
+    DIRECT_EFFECT_APPLY_OCCLUSION,
+    DIRECT_EFFECT_APPLY_TRANSMISSION,
+)
 import ctypes
 
 
@@ -32,13 +38,13 @@ class DirectEffect:
         Raises:
             AudioProcessingError: If effect creation fails
         """
+        self._handle: Optional[DirectEffectHandle] = None
+
         if not Context.is_initialized():
             raise AudioProcessingError("Steam Audio context is not initialized")
-        
-        self._handle: Optional[DirectEffectHandle] = None
-        
+
         try:
-            lib = get_library()
+            lib = loader.get_library()
             self._handle = lib.direct_effect_create()
             if not self._handle:
                 raise AudioProcessingError("Failed to create direct effect")
@@ -51,9 +57,9 @@ class DirectEffect:
     
     def _cleanup(self):
         """Clean up resources."""
-        if self._handle:
+        if getattr(self, "_handle", None):
             try:
-                lib = get_library()
+                lib = loader.get_library()
                 lib.direct_effect_destroy(self._handle)
             except Exception:
                 pass
@@ -116,7 +122,7 @@ class DirectEffect:
             )
         
         try:
-            lib = get_library()
+            lib = loader.get_library()
             lib.direct_effect_set_params(
                 self._handle,
                 distance,
@@ -124,7 +130,10 @@ class DirectEffect:
                 transmission_low,
                 transmission_mid,
                 transmission_high,
-                0,  # flags
+                DIRECT_EFFECT_APPLY_DISTANCE_ATTENUATION
+                | DIRECT_EFFECT_APPLY_AIR_ABSORPTION
+                | DIRECT_EFFECT_APPLY_OCCLUSION
+                | DIRECT_EFFECT_APPLY_TRANSMISSION,
             )
         except Exception as e:
             raise AudioProcessingError(f"Failed to set direct effect parameters: {e}")
@@ -168,7 +177,7 @@ class DirectEffect:
         output = np.zeros(frames, dtype=np.float32)
         
         try:
-            lib = get_library()
+            lib = loader.get_library()
             
             # Create ctypes pointers
             input_ptr = audio.ctypes.data_as(ctypes.POINTER(ctypes.c_float))
@@ -181,7 +190,7 @@ class DirectEffect:
                 input_ptr,
                 frames,
                 output_ptr,
-                ctypes.byref(output_frames),
+                ctypes.pointer(output_frames),
             )
             
             return output[:output_frames.value]

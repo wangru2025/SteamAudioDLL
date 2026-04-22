@@ -1,5 +1,6 @@
 #include "audio_processor.h"
 #include "phonon_wrapper.h"
+#include <algorithm>
 #include <cmath>
 #include <cstring>
 #include <stdexcept>
@@ -20,7 +21,11 @@ AudioProcessor::AudioProcessor(int input_channels, int output_channels)
         throw std::runtime_error("Failed to allocate output audio buffer");
     }
     
-    initialize_effects();
+    if (!initialize_effects()) {
+        iplAudioBufferFree(phonon.get_context(), &input_buffer_);
+        iplAudioBufferFree(phonon.get_context(), &output_buffer_);
+        throw std::runtime_error("Failed to initialize binaural effect");
+    }
 }
 
 AudioProcessor::~AudioProcessor() {
@@ -116,16 +121,19 @@ bool AudioProcessor::process(
     
     while (total_processed < input_frame_count) {
         int frames_to_process = std::min((int)audio_settings.frameSize, input_frame_count - total_processed);
-        
-        // Deinterleave input
-        iplAudioBufferDeinterleave(
-            phonon.get_context(),
-            (float*)input_data + total_processed * input_channels_,
-            &input_buffer_
-        );
-        
+
         input_buffer_.numSamples = frames_to_process;
         output_buffer_.numSamples = frames_to_process;
+
+        for (int ch = 0; ch < input_channels_; ++ch) {
+            std::fill(input_buffer_.data[ch], input_buffer_.data[ch] + frames_to_process, 0.0f);
+        }
+
+        for (int i = 0; i < frames_to_process; ++i) {
+            for (int ch = 0; ch < input_channels_; ++ch) {
+                input_buffer_.data[ch][i] = input_data[(total_processed + i) * input_channels_ + ch];
+            }
+        }
         
         // Update spatialization parameters
         Vector3 direction = calculate_direction(params);
@@ -153,15 +161,26 @@ bool AudioProcessor::process(
             }
         }
         
-        // Apply binaural effect
-        iplBinauralEffectApply(binaural_effect_, &binaural_params_, &input_buffer_, &output_buffer_);
-        
-        // Interleave output
-        iplAudioBufferInterleave(
-            phonon.get_context(),
-            &output_buffer_,
-            output_data + total_processed * 2
-        );
+        if (phonon.get_hrtf_enabled()) {
+            iplBinauralEffectApply(binaural_effect_, &binaural_params_, &input_buffer_, &output_buffer_);
+
+            iplAudioBufferInterleave(
+                phonon.get_context(),
+                &output_buffer_,
+                output_data + total_processed * 2
+            );
+        } else {
+            for (int i = 0; i < frames_to_process; ++i) {
+                if (input_channels_ == 1) {
+                    const float sample = input_buffer_.data[0][i];
+                    output_data[(total_processed + i) * 2] = sample;
+                    output_data[(total_processed + i) * 2 + 1] = sample;
+                } else {
+                    output_data[(total_processed + i) * 2] = input_buffer_.data[0][i];
+                    output_data[(total_processed + i) * 2 + 1] = input_buffer_.data[1][i];
+                }
+            }
+        }
         
         total_processed += frames_to_process;
     }

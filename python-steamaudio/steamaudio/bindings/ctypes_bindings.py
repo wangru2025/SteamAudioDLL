@@ -2,6 +2,7 @@
 
 import ctypes
 from ctypes import c_int, c_float, c_char_p, POINTER, Structure
+from . import loader
 
 # ============================================================================
 # C Structures
@@ -149,6 +150,7 @@ def setup_library_functions(lib):
     
     lib.audio_mixer_process.argtypes = [
         AudioMixerHandle,
+        POINTER(c_int),
         POINTER(POINTER(c_float)),
         POINTER(c_int),
         c_int,
@@ -247,8 +249,7 @@ def setup_library_functions(lib):
 
 def get_error_message():
     """Get the last error message from Steam Audio."""
-    from .loader import get_library
-    lib = get_library()
+    lib = loader.get_library()
     msg = lib.steam_audio_get_error_message()
     if msg:
         return msg.decode('utf-8')

@@ -110,6 +110,7 @@ STEAMAUDIO_API SteamAudioError audio_mixer_remove_source(
 /* Process multiple audio sources with spatialization and mix them */
 STEAMAUDIO_API SteamAudioError audio_mixer_process(
     AudioMixerHandle mixer_handle,
+    const int* source_ids,                   /* Source IDs for each input buffer */
     const float* const* input_data_array,  /* Array of input buffers, one per source */
     const int* input_frame_counts,         /* Frame count for each source */
     int num_sources,                       /* Number of sources in this batch */

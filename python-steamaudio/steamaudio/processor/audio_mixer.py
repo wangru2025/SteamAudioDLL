@@ -5,7 +5,7 @@ from typing import Dict, Optional, Union
 from ..core.context import Context
 from ..core.exceptions import AudioProcessingError, InvalidParameterError
 from ..spatial.spatialization import SpatializationParams
-from ..bindings.loader import get_library
+from ..bindings import loader
 from ..bindings.ctypes_bindings import (
     AudioMixerHandle,
     SpatializationParams as CSpatializationParams,
@@ -50,20 +50,20 @@ class AudioMixer:
             InvalidParameterError: If max_sources is invalid
             AudioProcessingError: If mixer creation fails
         """
-        if not Context.is_initialized():
-            raise AudioProcessingError("Steam Audio context is not initialized")
-        
+        self._handle: Optional[AudioMixerHandle] = None
+        self._sources: Dict[int, int] = {}  # source_id -> input_channels
+
         if not (1 <= max_sources <= 256):
             raise InvalidParameterError(
                 f"max_sources must be 1-256, got {max_sources}"
             )
+
+        if not Context.is_initialized():
+            raise AudioProcessingError("Steam Audio context is not initialized")
         
         self.max_sources = max_sources
-        self._sources: Dict[int, int] = {}  # source_id -> input_channels
-        self._handle: Optional[AudioMixerHandle] = None
-        
         try:
-            lib = get_library()
+            lib = loader.get_library()
             self._handle = lib.audio_mixer_create(max_sources)
             if not self._handle:
                 raise AudioProcessingError("Failed to create audio mixer")
@@ -76,15 +76,16 @@ class AudioMixer:
     
     def _cleanup(self):
         """Clean up resources."""
-        if self._handle:
+        if getattr(self, "_handle", None):
             try:
-                lib = get_library()
+                lib = loader.get_library()
                 lib.audio_mixer_destroy(self._handle)
             except Exception:
                 pass
             finally:
                 self._handle = None
-        self._sources.clear()
+        if hasattr(self, "_sources"):
+            self._sources.clear()
     
     def __enter__(self):
         """Context manager entry."""
@@ -123,7 +124,7 @@ class AudioMixer:
             )
         
         try:
-            lib = get_library()
+            lib = loader.get_library()
             lib.audio_mixer_add_source(self._handle, source_id, input_channels)
             self._sources[source_id] = input_channels
         except Exception as e:
@@ -147,7 +148,7 @@ class AudioMixer:
             raise InvalidParameterError(f"Source {source_id} not found")
         
         try:
-            lib = get_library()
+            lib = loader.get_library()
             lib.audio_mixer_remove_source(self._handle, source_id)
             del self._sources[source_id]
         except Exception as e:
@@ -191,6 +192,10 @@ class AudioMixer:
         for source_id in sources_data:
             if source_id not in self._sources:
                 raise InvalidParameterError(f"Source {source_id} not found in mixer")
+            if source_id not in params:
+                raise InvalidParameterError(
+                    f"Missing spatialization parameters for source {source_id}"
+                )
         
         # Convert all audio data to numpy arrays
         audio_arrays = {}
@@ -228,6 +233,8 @@ class AudioMixer:
         # Prepare C arrays
         sorted_ids = sorted(sources_data.keys())
         num_sources = len(sorted_ids)
+
+        c_source_ids = (ctypes.c_int * num_sources)(*sorted_ids)
         
         # Create input pointers array
         input_ptrs = (ctypes.POINTER(ctypes.c_float) * num_sources)()
@@ -250,14 +257,15 @@ class AudioMixer:
         output_frames = ctypes.c_int(0)
         
         try:
-            lib = get_library()
+            lib = loader.get_library()
             lib.audio_mixer_process(
                 self._handle,
+                c_source_ids,
                 input_ptrs,
                 c_frame_counts,
                 num_sources,
                 output_ptr,
-                ctypes.byref(output_frames),
+                ctypes.pointer(output_frames),
                 c_params_array,
             )
             

@@ -16,7 +16,7 @@ def _get_library_name():
     system = platform.system()
     
     if system == "Windows":
-        return "libSteamAudioDLL.dll"
+        return "SteamAudioDLL.dll"
     elif system == "Darwin":
         return "libSteamAudioDLL.dylib"
     elif system == "Linux":
@@ -28,6 +28,9 @@ def _get_library_name():
 def _find_library():
     """Find the Steam Audio library in common locations."""
     lib_name = _get_library_name()
+    candidate_names = [lib_name]
+    if platform.system() == "Windows":
+        candidate_names.append("libSteamAudioDLL.dll")
     
     # Search paths - prioritize package directory
     search_paths = [
@@ -40,9 +43,12 @@ def _find_library():
         Path.cwd() / "lib",
         Path.cwd() / "libs",
         Path.cwd() / "build" / "bin",
+        Path.cwd() / "build" / "bin" / "Release",
+        Path.cwd() / "build" / "Release",
         # Finally check system paths
         Path(__file__).parent.parent / "lib",
         Path(__file__).parent.parent / "build" / "bin",
+        Path(__file__).parent.parent / "build" / "bin" / "Release",
     ]
     
     # Add system library paths
@@ -53,16 +59,18 @@ def _find_library():
         ])
     
     for path in search_paths:
-        lib_path = path / lib_name
-        if lib_path.exists():
-            return str(lib_path)
+        for candidate in candidate_names:
+            lib_path = path / candidate
+            if lib_path.exists():
+                return str(lib_path)
     
     # Try loading from system path
-    try:
-        lib = ctypes.CDLL(lib_name)
-        return lib_name
-    except OSError:
-        pass
+    for candidate in candidate_names:
+        try:
+            ctypes.CDLL(candidate)
+            return candidate
+        except OSError:
+            pass
     
     raise InitializationError(
         f"Could not find Steam Audio library '{lib_name}'. "

@@ -1,7 +1,7 @@
 """Global Steam Audio context management."""
 
 from typing import Optional
-from ..bindings.loader import get_library
+from ..bindings import loader
 from ..core.exceptions import InitializationError
 
 
@@ -50,7 +50,7 @@ class Context:
             )
         
         try:
-            lib = get_library()
+            lib = loader.get_library()
             lib.steam_audio_init(self.sample_rate, self.frame_size)
             Context._initialized = True
             Context._instance = self
@@ -63,7 +63,7 @@ class Context:
         """Exit context manager - shutdown Steam Audio."""
         if self._initialized:
             try:
-                lib = get_library()
+                lib = loader.get_library()
                 lib.steam_audio_shutdown()
             except Exception as e:
                 print(f"Warning: Error during Steam Audio shutdown: {e}")
@@ -91,7 +91,7 @@ class Context:
             Version string
         """
         try:
-            lib = get_library()
+            lib = loader.get_library()
             version = lib.steam_audio_get_version()
             if version:
                 return version.decode('utf-8')
@@ -114,7 +114,7 @@ class Context:
             raise InitializationError("Steam Audio is not initialized")
         
         try:
-            lib = get_library()
+            lib = loader.get_library()
             lib.steam_audio_set_hrtf_enabled(1 if enabled else 0)
         except Exception as e:
             raise InitializationError(f"Failed to set HRTF: {e}")
@@ -134,7 +134,7 @@ class Context:
             raise InitializationError("Steam Audio is not initialized")
         
         try:
-            lib = get_library()
+            lib = loader.get_library()
             return lib.steam_audio_get_hrtf_enabled() != 0
         except Exception as e:
             raise InitializationError(f"Failed to get HRTF status: {e}")

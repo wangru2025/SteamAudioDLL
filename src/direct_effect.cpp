@@ -2,9 +2,12 @@
 #include "phonon_wrapper.h"
 #include <cmath>
 #include <algorithm>
+#include <stdexcept>
 
 DirectEffect::DirectEffect() {
-    initialize_effects();
+    if (!initialize_effects()) {
+        throw std::runtime_error("Failed to initialize direct effect");
+    }
 }
 
 DirectEffect::~DirectEffect() {

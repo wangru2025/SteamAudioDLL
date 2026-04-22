@@ -66,10 +66,10 @@ class TestAudioMixerAdvanced:
                 sources_data = {0: audio1, 1: audio2}
                 params = {0: params1, 1: params2}
                 
-                def mock_process(handle, input_ptrs, frame_counts, num_sources,
+                def mock_process(handle, source_ids, input_ptrs, frame_counts, num_sources,
                                output_ptr, output_frames, c_params):
                     # Should use max frame count
-                    output_frames.contents = 1024
+                    output_frames.contents.value = 1024
                     return None
                 
                 mock_lib.audio_mixer_process.side_effect = mock_process
@@ -102,9 +102,9 @@ class TestAudioMixerAdvanced:
                 sources_data = {0: audio1, 1: audio2}
                 params = {0: params1, 1: params2}
                 
-                def mock_process(handle, input_ptrs, frame_counts, num_sources,
+                def mock_process(handle, source_ids, input_ptrs, frame_counts, num_sources,
                                output_ptr, output_frames, c_params):
-                    output_frames.contents = 1024
+                    output_frames.contents.value = 1024
                     return None
                 
                 mock_lib.audio_mixer_process.side_effect = mock_process
@@ -135,9 +135,9 @@ class TestAudioMixerAdvanced:
                 sources_data = {0: audio1, 1: audio2}
                 params = {0: params1, 1: params2}
                 
-                def mock_process(handle, input_ptrs, frame_counts, num_sources,
+                def mock_process(handle, source_ids, input_ptrs, frame_counts, num_sources,
                                output_ptr, output_frames, c_params):
-                    output_frames.contents = 1024
+                    output_frames.contents.value = 1024
                     return None
                 
                 mock_lib.audio_mixer_process.side_effect = mock_process
@@ -208,9 +208,9 @@ class TestAudioMixerAdvanced:
                 sources_data = {0: audio}
                 params_dict = {0: params}
                 
-                def mock_process(handle, input_ptrs, frame_counts, num_sources,
+                def mock_process(handle, source_ids, input_ptrs, frame_counts, num_sources,
                                output_ptr, output_frames, c_params):
-                    output_frames.contents = 4
+                    output_frames.contents.value = 4
                     return None
                 
                 mock_lib.audio_mixer_process.side_effect = mock_process
@@ -285,9 +285,9 @@ class TestAudioMixerAdvanced:
                     sources_data[i] = np.random.randn(512).astype(np.float32)
                     params_dict[i] = steamaudio.SpatializationParams()
                 
-                def mock_process(handle, input_ptrs, frame_counts, num_sources,
+                def mock_process(handle, source_ids, input_ptrs, frame_counts, num_sources,
                                output_ptr, output_frames, c_params):
-                    output_frames.contents = 512
+                    output_frames.contents.value = 512
                     return None
                 
                 mock_lib.audio_mixer_process.side_effect = mock_process

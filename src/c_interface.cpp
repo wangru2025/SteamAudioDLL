@@ -67,8 +67,22 @@ STEAMAUDIO_API SteamAudioError steam_audio_init(int sample_rate, int frame_size)
 }
 
 STEAMAUDIO_API void steam_audio_shutdown() {
-    std::lock_guard<std::mutex> lock(g_processors_mutex);
-    g_processors.clear();
+    {
+        std::lock_guard<std::mutex> lock(g_processors_mutex);
+        g_processors.clear();
+    }
+    {
+        std::lock_guard<std::mutex> lock(g_mixers_mutex);
+        g_mixers.clear();
+    }
+    {
+        std::lock_guard<std::mutex> lock(g_reverbs_mutex);
+        g_reverbs.clear();
+    }
+    {
+        std::lock_guard<std::mutex> lock(g_direct_effects_mutex);
+        g_direct_effects.clear();
+    }
     PhononWrapper::instance().shutdown();
 }
 
@@ -164,9 +178,9 @@ STEAMAUDIO_API int steam_audio_get_hrtf_enabled() {
 /* ===== Reverb Control ===== */
 
 STEAMAUDIO_API SteamAudioError steam_audio_set_reverb_enabled(int enabled) {
-    // Placeholder for global reverb control
-    (void)enabled; // Suppress unused parameter warning
-    return STEAM_AUDIO_OK;
+    (void)enabled;
+    g_last_error = "Global reverb API is not implemented. Use room_reverb_* APIs instead.";
+    return STEAM_AUDIO_ERROR_PROCESSING_FAILED;
 }
 
 STEAMAUDIO_API SteamAudioError steam_audio_set_reverb_params(
@@ -176,13 +190,13 @@ STEAMAUDIO_API SteamAudioError steam_audio_set_reverb_params(
     float wet_level,
     float dry_level) {
     
-    // Placeholder for global reverb parameters
     (void)room_size;
     (void)damping;
     (void)width;
     (void)wet_level;
     (void)dry_level;
-    return STEAM_AUDIO_OK;
+    g_last_error = "Global reverb API is not implemented. Use room_reverb_* APIs instead.";
+    return STEAM_AUDIO_ERROR_PROCESSING_FAILED;
 }
 
 /* ===== Utility ===== */
@@ -285,6 +299,7 @@ STEAMAUDIO_API SteamAudioError audio_mixer_remove_source(
 
 STEAMAUDIO_API SteamAudioError audio_mixer_process(
     AudioMixerHandle mixer_handle,
+    const int* source_ids,
     const float* const* input_data_array,
     const int* input_frame_counts,
     int num_sources,
@@ -293,7 +308,7 @@ STEAMAUDIO_API SteamAudioError audio_mixer_process(
     const SpatializationParams* params_array) {
     
     try {
-        if (!input_data_array || !input_frame_counts || !output_data || !output_frame_count || !params_array) {
+        if (!source_ids || !input_data_array || !input_frame_counts || !output_data || !output_frame_count || !params_array) {
             g_last_error = "Null pointer argument";
             return STEAM_AUDIO_ERROR_INVALID_PARAM;
         }
@@ -311,6 +326,7 @@ STEAMAUDIO_API SteamAudioError audio_mixer_process(
         }
         
         if (!it->second->process(
+            source_ids,
             input_data_array,
             input_frame_counts,
             num_sources,

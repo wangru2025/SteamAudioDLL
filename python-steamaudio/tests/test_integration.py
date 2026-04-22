@@ -76,7 +76,7 @@ class TestProcessorIntegration:
                 params.sound_pos = steamaudio.Vector3(5, 0, 0)
                 
                 def mock_process(handle, input_ptr, frames, output_ptr, output_frames, c_params):
-                    output_frames.contents = frames
+                    output_frames.contents.value = frames
                     return None
                 
                 mock_lib.audio_processor_process.side_effect = mock_process
@@ -121,9 +121,9 @@ class TestMixerIntegration:
                 sources_data = {0: audio1, 1: audio2}
                 params_dict = {0: params1, 1: params2}
                 
-                def mock_process(handle, input_ptrs, frame_counts, num_sources,
+                def mock_process(handle, source_ids, input_ptrs, frame_counts, num_sources,
                                output_ptr, output_frames, c_params):
-                    output_frames.contents = 44100
+                    output_frames.contents.value = 44100
                     return None
                 
                 mock_lib.audio_mixer_process.side_effect = mock_process
@@ -155,7 +155,7 @@ class TestEffectsIntegration:
                 audio = np.sin(2 * np.pi * 440 * np.arange(44100) / 44100).astype(np.float32)
                 
                 def mock_process(handle, input_ptr, frames, output_ptr, output_frames):
-                    output_frames.contents = frames
+                    output_frames.contents.value = frames
                     return None
                 
                 mock_lib.room_reverb_process.side_effect = mock_process
@@ -189,7 +189,7 @@ class TestEffectsIntegration:
                 audio = np.sin(2 * np.pi * 440 * np.arange(44100) / 44100).astype(np.float32)
                 
                 def mock_process(handle, input_ptr, frames, output_ptr, output_frames):
-                    output_frames.contents = frames
+                    output_frames.contents.value = frames
                     return None
                 
                 mock_lib.direct_effect_process.side_effect = mock_process
@@ -217,7 +217,7 @@ class TestComplexWorkflow:
                 audio = np.sin(2 * np.pi * 440 * np.arange(1024) / 44100).astype(np.float32)
                 
                 def mock_process(handle, input_ptr, frames, output_ptr, output_frames, c_params):
-                    output_frames.contents = frames
+                    output_frames.contents.value = frames
                     return None
                 
                 mock_lib.audio_processor_process.side_effect = mock_process
@@ -243,9 +243,9 @@ class TestComplexWorkflow:
             with patch('steamaudio.bindings.loader.get_library', return_value=mock_lib):
                 mixer = steamaudio.AudioMixer(max_sources=8)
                 
-                def mock_process(handle, input_ptrs, frame_counts, num_sources,
+                def mock_process(handle, source_ids, input_ptrs, frame_counts, num_sources,
                                output_ptr, output_frames, c_params):
-                    output_frames.contents = 1024
+                    output_frames.contents.value = 1024
                     return None
                 
                 mock_lib.audio_mixer_process.side_effect = mock_process
@@ -295,11 +295,11 @@ class TestComplexWorkflow:
                 audio = np.sin(2 * np.pi * 440 * np.arange(44100) / 44100).astype(np.float32)
                 
                 def mock_direct_process(handle, input_ptr, frames, output_ptr, output_frames):
-                    output_frames.contents = frames
+                    output_frames.contents.value = frames
                     return None
                 
                 def mock_reverb_process(handle, input_ptr, frames, output_ptr, output_frames):
-                    output_frames.contents = frames
+                    output_frames.contents.value = frames
                     return None
                 
                 mock_lib.direct_effect_process.side_effect = mock_direct_process

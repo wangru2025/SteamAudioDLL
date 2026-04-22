@@ -80,6 +80,20 @@ set_target_properties(SteamAudioDLL PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
 )
 
+if(WIN32)
+    add_custom_command(TARGET SteamAudioDLL POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_CURRENT_SOURCE_DIR}/${STEAMAUDIO_SDK_PATH}/lib/windows-x64/phonon.dll"
+            "$<TARGET_FILE_DIR:SteamAudioDLL>/phonon.dll"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_CURRENT_SOURCE_DIR}/${STEAMAUDIO_SDK_PATH}/lib/windows-x64/GPUUtilities.dll"
+            "$<TARGET_FILE_DIR:SteamAudioDLL>/GPUUtilities.dll"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_CURRENT_SOURCE_DIR}/${STEAMAUDIO_SDK_PATH}/lib/windows-x64/TrueAudioNext.dll"
+            "$<TARGET_FILE_DIR:SteamAudioDLL>/TrueAudioNext.dll"
+    )
+endif()
+
 # Export symbols for C interface
 if(MSVC)
     target_compile_options(SteamAudioDLL PRIVATE /W4)

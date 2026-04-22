@@ -4,7 +4,7 @@ import numpy as np
 from typing import Optional, Dict, Union
 from ..core.context import Context
 from ..core.exceptions import AudioProcessingError, InvalidParameterError
-from ..bindings.loader import get_library
+from ..bindings import loader
 from ..bindings.ctypes_bindings import RoomReverbHandle
 import ctypes
 
@@ -50,13 +50,13 @@ class RoomReverb:
         Raises:
             AudioProcessingError: If reverb creation fails
         """
+        self._handle: Optional[RoomReverbHandle] = None
+
         if not Context.is_initialized():
             raise AudioProcessingError("Steam Audio context is not initialized")
-        
-        self._handle: Optional[RoomReverbHandle] = None
-        
+
         try:
-            lib = get_library()
+            lib = loader.get_library()
             self._handle = lib.room_reverb_create()
             if not self._handle:
                 raise AudioProcessingError("Failed to create room reverb")
@@ -69,9 +69,9 @@ class RoomReverb:
     
     def _cleanup(self):
         """Clean up resources."""
-        if self._handle:
+        if getattr(self, "_handle", None):
             try:
-                lib = get_library()
+                lib = loader.get_library()
                 lib.room_reverb_destroy(self._handle)
             except Exception:
                 pass
@@ -104,7 +104,7 @@ class RoomReverb:
             raise InvalidParameterError(f"Invalid preset: {preset}")
         
         try:
-            lib = get_library()
+            lib = loader.get_library()
             lib.room_reverb_set_preset(self._handle, preset)
         except Exception as e:
             raise AudioProcessingError(f"Failed to set reverb preset: {e}")
@@ -151,7 +151,7 @@ class RoomReverb:
             )
         
         try:
-            lib = get_library()
+            lib = loader.get_library()
             lib.room_reverb_set_params(
                 self._handle,
                 room_width,
@@ -178,7 +178,7 @@ class RoomReverb:
             raise AudioProcessingError("Reverb has been destroyed")
         
         try:
-            lib = get_library()
+            lib = loader.get_library()
             
             room_width = ctypes.c_float()
             room_height = ctypes.c_float()
@@ -188,11 +188,11 @@ class RoomReverb:
             
             lib.room_reverb_get_params(
                 self._handle,
-                ctypes.byref(room_width),
-                ctypes.byref(room_height),
-                ctypes.byref(room_depth),
-                ctypes.byref(wall_absorption),
-                ctypes.byref(reverb_time),
+                ctypes.pointer(room_width),
+                ctypes.pointer(room_height),
+                ctypes.pointer(room_depth),
+                ctypes.pointer(wall_absorption),
+                ctypes.pointer(reverb_time),
             )
             
             return {
@@ -244,7 +244,7 @@ class RoomReverb:
         output = np.zeros(frames, dtype=np.float32)
         
         try:
-            lib = get_library()
+            lib = loader.get_library()
             
             # Create ctypes pointers
             input_ptr = audio.ctypes.data_as(ctypes.POINTER(ctypes.c_float))
@@ -257,7 +257,7 @@ class RoomReverb:
                 input_ptr,
                 frames,
                 output_ptr,
-                ctypes.byref(output_frames),
+                ctypes.pointer(output_frames),
             )
             
             return output[:output_frames.value]

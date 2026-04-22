@@ -5,7 +5,7 @@ from typing import Optional, Union
 from ..core.context import Context
 from ..core.exceptions import AudioProcessingError, InvalidParameterError
 from ..spatial.spatialization import SpatializationParams
-from ..bindings.loader import get_library
+from ..bindings import loader
 from ..bindings.ctypes_bindings import (
     AudioProcessorHandle,
     SpatializationParams as CSpatializationParams,
@@ -40,19 +40,19 @@ class AudioProcessor:
             InvalidParameterError: If input_channels is invalid
             AudioProcessingError: If processor creation fails
         """
-        if not Context.is_initialized():
-            raise AudioProcessingError("Steam Audio context is not initialized")
-        
+        self._handle: Optional[AudioProcessorHandle] = None
+
         if input_channels not in (1, 2):
             raise InvalidParameterError(
                 f"input_channels must be 1 or 2, got {input_channels}"
             )
+
+        if not Context.is_initialized():
+            raise AudioProcessingError("Steam Audio context is not initialized")
         
         self.input_channels = input_channels
-        self._handle: Optional[AudioProcessorHandle] = None
-        
         try:
-            lib = get_library()
+            lib = loader.get_library()
             self._handle = lib.audio_processor_create(input_channels, 2)
             if not self._handle:
                 raise AudioProcessingError("Failed to create audio processor")
@@ -65,9 +65,9 @@ class AudioProcessor:
     
     def _cleanup(self):
         """Clean up resources."""
-        if self._handle:
+        if getattr(self, "_handle", None):
             try:
-                lib = get_library()
+                lib = loader.get_library()
                 lib.audio_processor_destroy(self._handle)
             except Exception:
                 pass
@@ -141,7 +141,7 @@ class AudioProcessor:
         c_params = self._params_to_c(params)
         
         try:
-            lib = get_library()
+            lib = loader.get_library()
             
             # Create ctypes pointers
             input_ptr = audio.ctypes.data_as(ctypes.POINTER(ctypes.c_float))
@@ -154,8 +154,8 @@ class AudioProcessor:
                 input_ptr,
                 frames,
                 output_ptr,
-                ctypes.byref(output_frames),
-                ctypes.byref(c_params),
+                ctypes.pointer(output_frames),
+                ctypes.pointer(c_params),
             )
             
             # Reshape output to (frames, 2)

@@ -148,11 +148,11 @@ class TestRoomReverb:
             mock_lib.room_reverb_create.return_value = 2000000
             
             def mock_get_params(handle, w, h, d, a, t):
-                w.contents = 5.0
-                h.contents = 3.0
-                d.contents = 4.0
-                a.contents = 0.5
-                t.contents = 0.8
+                w.contents.value = 5.0
+                h.contents.value = 3.0
+                d.contents.value = 4.0
+                a.contents.value = 0.5
+                t.contents.value = 0.8
                 return None
             
             mock_lib.room_reverb_get_params.side_effect = mock_get_params
@@ -165,7 +165,7 @@ class TestRoomReverb:
                 assert params['room_height'] == 3.0
                 assert params['room_depth'] == 4.0
                 assert params['wall_absorption'] == 0.5
-                assert params['reverb_time'] == 0.8
+                assert params['reverb_time'] == pytest.approx(0.8)
     
     def test_process_audio(self):
         """Test processing audio."""
@@ -180,7 +180,7 @@ class TestRoomReverb:
                 audio = np.random.randn(1024).astype(np.float32)
                 
                 def mock_process(handle, input_ptr, frames, output_ptr, output_frames):
-                    output_frames.contents = 1024
+                    output_frames.contents.value = 1024
                     return None
                 
                 mock_lib.room_reverb_process.side_effect = mock_process
@@ -318,7 +318,7 @@ class TestDirectEffect:
                 audio = np.random.randn(1024).astype(np.float32)
                 
                 def mock_process(handle, input_ptr, frames, output_ptr, output_frames):
-                    output_frames.contents = 1024
+                    output_frames.contents.value = 1024
                     return None
                 
                 mock_lib.direct_effect_process.side_effect = mock_process
@@ -370,7 +370,7 @@ class TestDirectEffect:
                 audio = [0.1, 0.2, 0.3, 0.4]
                 
                 def mock_process(handle, input_ptr, frames, output_ptr, output_frames):
-                    output_frames.contents = 4
+                    output_frames.contents.value = 4
                     return None
                 
                 mock_lib.direct_effect_process.side_effect = mock_process

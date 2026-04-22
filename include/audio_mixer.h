@@ -51,6 +51,7 @@ public:
     bool has_source(int source_id) const;
     
     bool process(
+        const int* source_ids,
         const float* const* input_data_array,
         const int* input_frame_counts,
         int num_sources,

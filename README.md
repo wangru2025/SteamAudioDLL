@@ -49,7 +49,7 @@ cmake -G "MinGW Makefiles" ..
 cmake --build .
 ```
 
-编译完成后，DLL文件将位于 `build/bin/libSteamAudioDLL.dll`
+编译完成后，DLL文件将位于 `build/bin/Release/SteamAudioDLL.dll`
 
 ### 2. 安装Python包
 

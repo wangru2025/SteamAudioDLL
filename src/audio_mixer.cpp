@@ -25,7 +25,11 @@ AudioSource::AudioSource(int source_id, int input_channels)
         throw std::runtime_error("Failed to allocate output audio buffer for source");
     }
     
-    initialize_effects();
+    if (!initialize_effects()) {
+        iplAudioBufferFree(phonon.get_context(), &input_buffer_);
+        iplAudioBufferFree(phonon.get_context(), &output_buffer_);
+        throw std::runtime_error("Failed to initialize binaural effect for source");
+    }
 }
 
 AudioSource::~AudioSource() {
@@ -121,16 +125,19 @@ bool AudioSource::process(
     
     while (total_processed < input_frame_count) {
         int frames_to_process = std::min((int)audio_settings.frameSize, input_frame_count - total_processed);
-        
-        // Deinterleave input
-        iplAudioBufferDeinterleave(
-            phonon.get_context(),
-            (float*)input_data + total_processed * input_channels_,
-            &input_buffer_
-        );
-        
+
         input_buffer_.numSamples = frames_to_process;
         output_buffer_.numSamples = frames_to_process;
+
+        for (int ch = 0; ch < input_channels_; ++ch) {
+            std::fill(input_buffer_.data[ch], input_buffer_.data[ch] + frames_to_process, 0.0f);
+        }
+
+        for (int i = 0; i < frames_to_process; ++i) {
+            for (int ch = 0; ch < input_channels_; ++ch) {
+                input_buffer_.data[ch][i] = input_data[(total_processed + i) * input_channels_ + ch];
+            }
+        }
         
         // Update spatialization parameters
         Vector3 direction = calculate_direction(params);
@@ -157,15 +164,26 @@ bool AudioSource::process(
             }
         }
         
-        // Apply binaural effect
-        iplBinauralEffectApply(binaural_effect_, &binaural_params_, &input_buffer_, &output_buffer_);
-        
-        // Interleave output
-        iplAudioBufferInterleave(
-            phonon.get_context(),
-            &output_buffer_,
-            output_data + total_processed * 2
-        );
+        if (phonon.get_hrtf_enabled()) {
+            iplBinauralEffectApply(binaural_effect_, &binaural_params_, &input_buffer_, &output_buffer_);
+
+            iplAudioBufferInterleave(
+                phonon.get_context(),
+                &output_buffer_,
+                output_data + total_processed * 2
+            );
+        } else {
+            for (int i = 0; i < frames_to_process; ++i) {
+                if (input_channels_ == 1) {
+                    const float sample = input_buffer_.data[0][i];
+                    output_data[(total_processed + i) * 2] = sample;
+                    output_data[(total_processed + i) * 2 + 1] = sample;
+                } else {
+                    output_data[(total_processed + i) * 2] = input_buffer_.data[0][i];
+                    output_data[(total_processed + i) * 2 + 1] = input_buffer_.data[1][i];
+                }
+            }
+        }
         
         total_processed += frames_to_process;
     }
@@ -231,6 +249,7 @@ bool AudioMixer::initialize_mix_buffer(int frame_count) {
 }
 
 bool AudioMixer::process(
+    const int* source_ids,
     const float* const* input_data_array,
     const int* input_frame_counts,
     int num_sources,
@@ -238,7 +257,7 @@ bool AudioMixer::process(
     int& output_frame_count,
     const SpatializationParams* params_array) {
     
-    if (!input_data_array || !input_frame_counts || !params_array || !output_data) {
+    if (!source_ids || !input_data_array || !input_frame_counts || !params_array || !output_data) {
         return false;
     }
     
@@ -266,24 +285,24 @@ bool AudioMixer::process(
     
     // Process each source and accumulate to mix buffer
     std::vector<float> source_output(max_frames * 2, 0.0f);
-    int source_index = 0;
-    
-    for (auto& [source_id, source] : sources_) {
-        if (source_index >= num_sources) {
-            break;
+    for (int source_index = 0; source_index < num_sources; ++source_index) {
+        auto it = sources_.find(source_ids[source_index]);
+        if (it == sources_.end()) {
+            return false;
         }
-        
+
+        auto& source = it->second;
         int frame_count = input_frame_counts[source_index];
         int output_frame_count_temp = 0;
-        
-        // Process this source
+
+        std::fill(source_output.begin(), source_output.end(), 0.0f);
+
         if (!source->process(
             input_data_array[source_index],
             frame_count,
             source_output.data(),
             output_frame_count_temp,
             params_array[source_index])) {
-            source_index++;
             continue;
         }
         
@@ -291,8 +310,6 @@ bool AudioMixer::process(
         for (int i = 0; i < output_frame_count_temp * 2; ++i) {
             mix_buffer_[i] += source_output[i];
         }
-        
-        source_index++;
     }
     
     // Normalize mixed output to prevent clipping
