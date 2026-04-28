@@ -24,6 +24,8 @@ public:
         float* output_data,
         int& output_frame_count
     );
+
+    bool set_simulation_params(const IPLDirectEffectParams& params);
     
 private:
     // Direct effect parameters

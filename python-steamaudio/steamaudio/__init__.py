@@ -24,8 +24,20 @@ from .spatial.vector3 import Vector3
 from .spatial.spatialization import SpatializationParams
 from .processor.audio_processor import AudioProcessor
 from .processor.audio_mixer import AudioMixer
+from .scene.geometry_scene import GeometryScene, StaticMesh, Material, MaterialRegistry
+from .environment.audio_environment import AudioEnvironment, SourceConfig
+from .simulation.direct_simulator import DirectSimulator
 from .effects.room_reverb import RoomReverb
 from .effects.direct_effect import DirectEffect
+from .bindings.ctypes_bindings import (
+    DIRECT_EFFECT_APPLY_AIR_ABSORPTION,
+    DIRECT_EFFECT_APPLY_DISTANCE_ATTENUATION,
+    DIRECT_EFFECT_APPLY_DIRECTIVITY,
+    DIRECT_EFFECT_APPLY_OCCLUSION,
+    DIRECT_EFFECT_APPLY_TRANSMISSION,
+    SCENE_OCCLUSION_RAYCAST,
+    SCENE_OCCLUSION_VOLUMETRIC,
+)
 
 __version__ = "1.0.0"
 __author__ = "Steam Audio Contributors"
@@ -36,8 +48,22 @@ __all__ = [
     "SpatializationParams",
     "AudioProcessor",
     "AudioMixer",
+    "GeometryScene",
+    "StaticMesh",
+    "Material",
+    "MaterialRegistry",
+    "AudioEnvironment",
+    "SourceConfig",
+    "DirectSimulator",
     "RoomReverb",
     "DirectEffect",
+    "DIRECT_EFFECT_APPLY_AIR_ABSORPTION",
+    "DIRECT_EFFECT_APPLY_DISTANCE_ATTENUATION",
+    "DIRECT_EFFECT_APPLY_DIRECTIVITY",
+    "DIRECT_EFFECT_APPLY_OCCLUSION",
+    "DIRECT_EFFECT_APPLY_TRANSMISSION",
+    "SCENE_OCCLUSION_RAYCAST",
+    "SCENE_OCCLUSION_VOLUMETRIC",
     "SteamAudioError",
     "AudioProcessingError",
     "InitializationError",

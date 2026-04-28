@@ -49,8 +49,8 @@ Documentation = "https://github.com/wangru2025/SteamAudioDLL"
 Repository = "https://github.com/wangru2025/SteamAudioDLL.git"
 Issues = "https://github.com/wangru2025/SteamAudioDLL/issues"
 
-[tool.setuptools]
-packages = ["steamaudio"]
+[tool.setuptools.packages.find]
+include = ["steamaudio*"]
 
 [tool.black]
 line-length = 88

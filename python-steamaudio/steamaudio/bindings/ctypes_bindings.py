@@ -41,12 +41,77 @@ class SpatializationParams(Structure):
     ]
 
 
+class TriangleIndices(Structure):
+    """Triangle index triplet for static meshes."""
+    _fields_ = [
+        ("indices", c_int * 3),
+    ]
+
+
+class AcousticMaterial(Structure):
+    """Acoustic material structure matching the C API."""
+    _fields_ = [
+        ("absorption_low", c_float),
+        ("absorption_mid", c_float),
+        ("absorption_high", c_float),
+        ("scattering", c_float),
+        ("transmission_low", c_float),
+        ("transmission_mid", c_float),
+        ("transmission_high", c_float),
+    ]
+
+
+class CoordinateSpace(Structure):
+    """Position and orientation in world space."""
+    _fields_ = [
+        ("origin", Vector3),
+        ("ahead", Vector3),
+        ("up", Vector3),
+    ]
+
+
+class DirectSimulationParams(Structure):
+    """Direct-path simulation results from Steam Audio."""
+    _fields_ = [
+        ("flags", c_int),
+        ("transmission_type", c_int),
+        ("distance_attenuation", c_float),
+        ("air_absorption", c_float * 3),
+        ("directivity", c_float),
+        ("occlusion", c_float),
+        ("transmission", c_float * 3),
+    ]
+
+
+class DirectListenerParams(Structure):
+    """Listener parameters for direct simulation."""
+    _fields_ = [
+        ("listener", CoordinateSpace),
+    ]
+
+
+class DirectSourceParams(Structure):
+    """Source parameters for direct simulation."""
+    _fields_ = [
+        ("source", CoordinateSpace),
+        ("min_distance", c_float),
+        ("direct_flags", c_int),
+        ("occlusion_type", c_int),
+        ("occlusion_radius", c_float),
+        ("num_occlusion_samples", c_int),
+        ("num_transmission_rays", c_int),
+    ]
+
+
 # ============================================================================
 # Opaque Handle Types
 # ============================================================================
 
 AudioProcessorHandle = ctypes.c_void_p
 AudioMixerHandle = ctypes.c_void_p
+GeometrySceneHandle = ctypes.c_void_p
+StaticMeshHandle = ctypes.c_void_p
+DirectSimulatorHandle = ctypes.c_void_p
 RoomReverbHandle = ctypes.c_void_p
 DirectEffectHandle = ctypes.c_void_p
 
@@ -82,6 +147,9 @@ DIRECT_EFFECT_APPLY_AIR_ABSORPTION = 1 << 1
 DIRECT_EFFECT_APPLY_DIRECTIVITY = 1 << 2
 DIRECT_EFFECT_APPLY_OCCLUSION = 1 << 3
 DIRECT_EFFECT_APPLY_TRANSMISSION = 1 << 4
+
+SCENE_OCCLUSION_RAYCAST = 0
+SCENE_OCCLUSION_VOLUMETRIC = 1
 
 
 def _check_error(result, func, args):
@@ -166,6 +234,83 @@ def setup_library_functions(lib):
     
     lib.audio_mixer_get_max_sources.argtypes = [AudioMixerHandle]
     lib.audio_mixer_get_max_sources.restype = c_int
+
+    # ===== Geometry Scene =====
+    lib.geometry_scene_create.argtypes = []
+    lib.geometry_scene_create.restype = GeometrySceneHandle
+
+    lib.geometry_scene_destroy.argtypes = [GeometrySceneHandle]
+    lib.geometry_scene_destroy.restype = None
+
+    lib.geometry_scene_commit.argtypes = [GeometrySceneHandle]
+    lib.geometry_scene_commit.restype = c_int
+    lib.geometry_scene_commit.errcheck = _check_error
+
+    lib.geometry_scene_add_static_mesh.argtypes = [
+        GeometrySceneHandle,
+        POINTER(Vector3),
+        c_int,
+        POINTER(TriangleIndices),
+        c_int,
+        POINTER(c_int),
+        c_int,
+        POINTER(AcousticMaterial),
+    ]
+    lib.geometry_scene_add_static_mesh.restype = StaticMeshHandle
+
+    lib.geometry_static_mesh_destroy.argtypes = [StaticMeshHandle]
+    lib.geometry_static_mesh_destroy.restype = None
+
+    lib.geometry_static_mesh_set_material.argtypes = [
+        GeometrySceneHandle,
+        StaticMeshHandle,
+        c_int,
+        POINTER(AcousticMaterial),
+    ]
+    lib.geometry_static_mesh_set_material.restype = c_int
+    lib.geometry_static_mesh_set_material.errcheck = _check_error
+
+    # ===== Direct Simulation =====
+    lib.direct_simulator_create.argtypes = [GeometrySceneHandle, c_int]
+    lib.direct_simulator_create.restype = DirectSimulatorHandle
+
+    lib.direct_simulator_destroy.argtypes = [DirectSimulatorHandle]
+    lib.direct_simulator_destroy.restype = None
+
+    lib.direct_simulator_add_source.argtypes = [DirectSimulatorHandle, c_int]
+    lib.direct_simulator_add_source.restype = c_int
+    lib.direct_simulator_add_source.errcheck = _check_error
+
+    lib.direct_simulator_remove_source.argtypes = [DirectSimulatorHandle, c_int]
+    lib.direct_simulator_remove_source.restype = c_int
+    lib.direct_simulator_remove_source.errcheck = _check_error
+
+    lib.direct_simulator_set_listener.argtypes = [
+        DirectSimulatorHandle,
+        POINTER(DirectListenerParams),
+    ]
+    lib.direct_simulator_set_listener.restype = c_int
+    lib.direct_simulator_set_listener.errcheck = _check_error
+
+    lib.direct_simulator_set_source.argtypes = [
+        DirectSimulatorHandle,
+        c_int,
+        POINTER(DirectSourceParams),
+    ]
+    lib.direct_simulator_set_source.restype = c_int
+    lib.direct_simulator_set_source.errcheck = _check_error
+
+    lib.direct_simulator_run_direct.argtypes = [DirectSimulatorHandle]
+    lib.direct_simulator_run_direct.restype = c_int
+    lib.direct_simulator_run_direct.errcheck = _check_error
+
+    lib.direct_simulator_get_direct_params.argtypes = [
+        DirectSimulatorHandle,
+        c_int,
+        POINTER(DirectSimulationParams),
+    ]
+    lib.direct_simulator_get_direct_params.restype = c_int
+    lib.direct_simulator_get_direct_params.errcheck = _check_error
     
     # ===== Room Reverb =====
     lib.room_reverb_create.argtypes = []
@@ -228,6 +373,13 @@ def setup_library_functions(lib):
     ]
     lib.direct_effect_set_params.restype = c_int
     lib.direct_effect_set_params.errcheck = _check_error
+
+    lib.direct_effect_set_simulation_params.argtypes = [
+        DirectEffectHandle,
+        POINTER(DirectSimulationParams),
+    ]
+    lib.direct_effect_set_simulation_params.restype = c_int
+    lib.direct_effect_set_simulation_params.errcheck = _check_error
     
     lib.direct_effect_process.argtypes = [
         DirectEffectHandle,

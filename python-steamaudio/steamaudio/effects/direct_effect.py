@@ -6,6 +6,7 @@ from ..core.context import Context
 from ..core.exceptions import AudioProcessingError, InvalidParameterError
 from ..bindings import loader
 from ..bindings.ctypes_bindings import (
+    DirectSimulationParams,
     DirectEffectHandle,
     DIRECT_EFFECT_APPLY_AIR_ABSORPTION,
     DIRECT_EFFECT_APPLY_DISTANCE_ATTENUATION,
@@ -197,3 +198,12 @@ class DirectEffect:
         
         except Exception as e:
             raise AudioProcessingError(f"Direct effect processing failed: {e}")
+
+    def set_simulation_params(self, params: DirectSimulationParams) -> None:
+        """Apply direct-path parameters produced by Steam Audio simulation."""
+        if not self._handle:
+            raise AudioProcessingError("Effect has been destroyed")
+        loader.get_library().direct_effect_set_simulation_params(
+            self._handle,
+            ctypes.pointer(params),
+        )

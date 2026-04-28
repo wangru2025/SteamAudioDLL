@@ -17,6 +17,9 @@ extern "C" {
 /* Opaque handle types */
 typedef void* SteamAudioHandle;
 typedef void* AudioProcessorHandle;
+typedef void* GeometrySceneHandle;
+typedef void* StaticMeshHandle;
+typedef void* DirectSimulatorHandle;
 
 /* Error codes */
 typedef enum {
@@ -53,6 +56,55 @@ typedef struct {
     float rolloff;
     float directional_attenuation;
 } SpatializationParams;
+
+typedef struct {
+    int indices[3];
+} TriangleIndices;
+
+typedef struct {
+    float absorption_low;
+    float absorption_mid;
+    float absorption_high;
+    float scattering;
+    float transmission_low;
+    float transmission_mid;
+    float transmission_high;
+} AcousticMaterial;
+
+typedef struct {
+    Vector3 origin;
+    Vector3 ahead;
+    Vector3 up;
+} CoordinateSpace;
+
+typedef enum {
+    SCENE_OCCLUSION_RAYCAST = 0,
+    SCENE_OCCLUSION_VOLUMETRIC = 1,
+} SceneOcclusionType;
+
+typedef struct {
+    int flags;
+    int transmission_type;
+    float distance_attenuation;
+    float air_absorption[3];
+    float directivity;
+    float occlusion;
+    float transmission[3];
+} DirectSimulationParams;
+
+typedef struct {
+    CoordinateSpace listener;
+} DirectListenerParams;
+
+typedef struct {
+    CoordinateSpace source;
+    float min_distance;
+    int direct_flags;
+    int occlusion_type;
+    float occlusion_radius;
+    int num_occlusion_samples;
+    int num_transmission_rays;
+} DirectSourceParams;
 
 /* ===== Core Initialization ===== */
 
@@ -124,6 +176,74 @@ STEAMAUDIO_API int audio_mixer_get_source_count(AudioMixerHandle mixer_handle);
 
 /* Get maximum number of sources the mixer can handle */
 STEAMAUDIO_API int audio_mixer_get_max_sources(AudioMixerHandle mixer_handle);
+
+/* ===== Geometry Scene ===== */
+
+STEAMAUDIO_API GeometrySceneHandle geometry_scene_create();
+
+STEAMAUDIO_API void geometry_scene_destroy(GeometrySceneHandle handle);
+
+STEAMAUDIO_API SteamAudioError geometry_scene_commit(GeometrySceneHandle handle);
+
+STEAMAUDIO_API StaticMeshHandle geometry_scene_add_static_mesh(
+    GeometrySceneHandle scene_handle,
+    const Vector3* vertices,
+    int num_vertices,
+    const TriangleIndices* triangles,
+    int num_triangles,
+    const int* material_indices,
+    int num_materials,
+    const AcousticMaterial* materials
+);
+
+STEAMAUDIO_API void geometry_static_mesh_destroy(StaticMeshHandle handle);
+
+STEAMAUDIO_API SteamAudioError geometry_static_mesh_set_material(
+    GeometrySceneHandle scene_handle,
+    StaticMeshHandle mesh_handle,
+    int material_index,
+    const AcousticMaterial* material
+);
+
+/* ===== Direct Simulation ===== */
+
+STEAMAUDIO_API DirectSimulatorHandle direct_simulator_create(
+    GeometrySceneHandle scene_handle,
+    int max_sources
+);
+
+STEAMAUDIO_API void direct_simulator_destroy(DirectSimulatorHandle handle);
+
+STEAMAUDIO_API SteamAudioError direct_simulator_add_source(
+    DirectSimulatorHandle handle,
+    int source_id
+);
+
+STEAMAUDIO_API SteamAudioError direct_simulator_remove_source(
+    DirectSimulatorHandle handle,
+    int source_id
+);
+
+STEAMAUDIO_API SteamAudioError direct_simulator_set_listener(
+    DirectSimulatorHandle handle,
+    const DirectListenerParams* params
+);
+
+STEAMAUDIO_API SteamAudioError direct_simulator_set_source(
+    DirectSimulatorHandle handle,
+    int source_id,
+    const DirectSourceParams* params
+);
+
+STEAMAUDIO_API SteamAudioError direct_simulator_run_direct(
+    DirectSimulatorHandle handle
+);
+
+STEAMAUDIO_API SteamAudioError direct_simulator_get_direct_params(
+    DirectSimulatorHandle handle,
+    int source_id,
+    DirectSimulationParams* params
+);
 
 /* ===== HRTF Control ===== */
 
@@ -233,6 +353,11 @@ STEAMAUDIO_API SteamAudioError direct_effect_set_params(
     float transmission_mid,      /* Transmission at mid freq (0.0-1.0) */
     float transmission_high,     /* Transmission at high freq (0.0-1.0) */
     int flags                    /* DirectEffectFlags */
+);
+
+STEAMAUDIO_API SteamAudioError direct_effect_set_simulation_params(
+    DirectEffectHandle handle,
+    const DirectSimulationParams* params
 );
 
 /* Process audio through direct effect */

@@ -317,3 +317,27 @@ class TestRealLibraryComplexWorkflow:
             # Apply reverb to first channel
             reverb_out = reverb.process(mixed[:, 0])
             assert reverb_out.shape == (1024,)
+
+
+class TestRealLibraryEnvironment:
+    """Test high-level audio environment with the real library."""
+
+    def test_environment_basic_workflow(self):
+        with steamaudio.Context(sample_rate=44100, frame_size=256):
+            env = steamaudio.AudioEnvironment(max_sources=1)
+            env.add_box(
+                steamaudio.Vector3(-1, -1, -1),
+                steamaudio.Vector3(1, 1, 1),
+                "concrete",
+            )
+            env.commit_geometry()
+            env.add_source(
+                0,
+                steamaudio.SourceConfig(position=steamaudio.Vector3(5, 0, 0)),
+            )
+            env.set_listener(steamaudio.Vector3(0, 0, 0))
+
+            audio = np.sin(2 * np.pi * 440 * np.arange(512) / 44100).astype(np.float32)
+            output = env.process({0: audio})
+
+            assert output.shape == (512, 2)

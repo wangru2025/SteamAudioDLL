@@ -114,7 +114,12 @@ bool DirectEffect::set_params(
     
     // Set flags
     direct_params_.flags = static_cast<IPLDirectEffectFlags>(flags_);
-    
+
+    return true;
+}
+
+bool DirectEffect::set_simulation_params(const IPLDirectEffectParams& params) {
+    direct_params_ = params;
     return true;
 }
 

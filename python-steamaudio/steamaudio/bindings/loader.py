@@ -31,13 +31,22 @@ def _find_library():
     candidate_names = [lib_name]
     if platform.system() == "Windows":
         candidate_names.append("libSteamAudioDLL.dll")
+
+    bindings_dir = Path(__file__).resolve().parent
+    package_root = bindings_dir.parent
+    project_root = package_root.parent.parent
     
     # Search paths - prioritize package directory
     search_paths = [
         # First, check package directory (for installed package)
-        Path(__file__).parent / "dll",
+        bindings_dir / "dll",
         # Then check relative to package root
-        Path(__file__).parent.parent / "bindings" / "dll",
+        package_root / "bindings" / "dll",
+        package_root / "dll",
+        project_root / "build" / "bin" / "Release",
+        project_root / "build" / "bin",
+        project_root / "build" / "Release",
+        project_root,
         # Then check current working directory
         Path.cwd(),
         Path.cwd() / "lib",
@@ -46,9 +55,9 @@ def _find_library():
         Path.cwd() / "build" / "bin" / "Release",
         Path.cwd() / "build" / "Release",
         # Finally check system paths
-        Path(__file__).parent.parent / "lib",
-        Path(__file__).parent.parent / "build" / "bin",
-        Path(__file__).parent.parent / "build" / "bin" / "Release",
+        package_root / "lib",
+        package_root / "build" / "bin",
+        package_root / "build" / "bin" / "Release",
     ]
     
     # Add system library paths
