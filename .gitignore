@@ -90,3 +90,6 @@ coverage/
 
 # Local configuration
 local_config.cmake
+
+# Embedded local repos
+nvgt/
