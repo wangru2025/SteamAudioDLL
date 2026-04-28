@@ -197,3 +197,52 @@ class TestAudioEnvironment:
                 assert env._sources[1].min_distance == pytest.approx(0.5)
                 assert env._sources[2].position == steamaudio.Vector3(4, 0, 0)
                 assert env._sources[2].min_distance == pytest.approx(2.0)
+
+    def test_environment_rejects_input_channel_update(self):
+        with patch("steamaudio.core.context.Context.is_initialized", return_value=True):
+            mock_lib = MagicMock()
+            mock_lib.geometry_scene_create.return_value = 2000000
+            mock_lib.direct_simulator_create.return_value = 4000000
+            mock_lib.audio_mixer_create.return_value = 1000000
+            mock_lib.direct_effect_create.return_value = 6000000
+
+            with patch("steamaudio.bindings.loader.get_library", return_value=mock_lib):
+                env = steamaudio.AudioEnvironment(max_sources=1)
+                env.add_source(
+                    1,
+                    steamaudio.SourceConfig(
+                        position=steamaudio.Vector3(1, 0, 0),
+                        input_channels=1,
+                    ),
+                )
+
+                with pytest.raises(steamaudio.InvalidParameterError, match="cannot be changed"):
+                    env.update_source(1, input_channels=2)
+
+                with pytest.raises(steamaudio.InvalidParameterError, match="cannot be changed"):
+                    env.update_sources(
+                        {
+                            1: steamaudio.SourceConfig(
+                                position=steamaudio.Vector3(2, 0, 0),
+                                input_channels=2,
+                            )
+                        }
+                    )
+
+    def test_environment_rejects_invalid_input_channels_on_add(self):
+        with patch("steamaudio.core.context.Context.is_initialized", return_value=True):
+            mock_lib = MagicMock()
+            mock_lib.geometry_scene_create.return_value = 2000000
+            mock_lib.direct_simulator_create.return_value = 4000000
+            mock_lib.audio_mixer_create.return_value = 1000000
+
+            with patch("steamaudio.bindings.loader.get_library", return_value=mock_lib):
+                env = steamaudio.AudioEnvironment(max_sources=1)
+                with pytest.raises(steamaudio.InvalidParameterError, match="must be 1 or 2"):
+                    env.add_source(
+                        1,
+                        steamaudio.SourceConfig(
+                            position=steamaudio.Vector3(1, 0, 0),
+                            input_channels=3,
+                        ),
+                    )

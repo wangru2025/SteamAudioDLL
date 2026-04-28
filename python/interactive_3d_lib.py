@@ -184,6 +184,8 @@ class AudioThread(threading.Thread):
             return GeometrySettings(**self.geometry_settings.__dict__)
 
     def _rebuild_environment(self, settings: GeometrySettings):
+        if self.environment:
+            self.environment._cleanup()
         self.environment = steamaudio.AudioEnvironment(
             max_sources=8,
             geometry_enabled=settings.geometry_enabled,
@@ -230,6 +232,8 @@ class AudioThread(threading.Thread):
             )
 
     def run(self):
+        p = None
+        stream = None
         try:
             with steamaudio.Context(sample_rate=self.sample_rate, frame_size=self.chunk_size):
                 self.reverb = steamaudio.RoomReverb()
@@ -328,14 +332,29 @@ class AudioThread(threading.Thread):
                             self.last_occlusion,
                             settings,
                         )
-
-                stream.stop_stream()
-                stream.close()
-                p.terminate()
         except Exception as exc:
             print(f"音频线程错误: {exc}")
             import traceback
             traceback.print_exc()
+        finally:
+            if stream is not None:
+                try:
+                    if stream.is_active():
+                        stream.stop_stream()
+                except Exception:
+                    pass
+                try:
+                    stream.close()
+                except Exception:
+                    pass
+            if p is not None:
+                try:
+                    p.terminate()
+                except Exception:
+                    pass
+            if self.environment:
+                self.environment._cleanup()
+                self.environment = None
 
 
 class ScenePanel(wx.Panel):

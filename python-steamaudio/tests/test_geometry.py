@@ -43,6 +43,25 @@ class TestGeometryScene:
                 assert mesh is not None
                 mock_lib.geometry_scene_add_static_mesh.assert_called_once()
 
+    def test_add_static_mesh_rejects_out_of_range_material_index(self):
+        with patch("steamaudio.core.context.Context.is_initialized", return_value=True):
+            mock_lib = MagicMock()
+            mock_lib.geometry_scene_create.return_value = 2000000
+
+            with patch("steamaudio.bindings.loader.get_library", return_value=mock_lib):
+                scene = steamaudio.GeometryScene()
+                with pytest.raises(steamaudio.InvalidParameterError, match="out of range"):
+                    scene.add_static_mesh(
+                        vertices=[
+                            steamaudio.Vector3(0, 0, 0),
+                            steamaudio.Vector3(1, 0, 0),
+                            steamaudio.Vector3(0, 1, 0),
+                        ],
+                        triangles=[(0, 1, 2)],
+                        material_indices=[1],
+                        materials=[steamaudio.Material.preset("concrete")],
+                    )
+
 
 class TestDirectSimulator:
     def test_simulator_create_and_get_params(self):

@@ -73,6 +73,11 @@ class AudioEnvironment:
         except KeyError as exc:
             raise InvalidParameterError(f"Source not found: {source_id}") from exc
 
+    @staticmethod
+    def _validate_source_config(config: SourceConfig) -> None:
+        if config.input_channels not in (1, 2):
+            raise InvalidParameterError("input_channels must be 1 or 2")
+
     def __del__(self):
         self._cleanup()
 
@@ -108,6 +113,7 @@ class AudioEnvironment:
         """Add a source to the environment."""
         if source_id in self._sources:
             raise InvalidParameterError(f"Source already exists: {source_id}")
+        self._validate_source_config(config)
         self.mixer.add_source(source_id, input_channels=config.input_channels)
         self.simulator.add_source(source_id)
         self._effects[source_id] = DirectEffect()
@@ -129,6 +135,11 @@ class AudioEnvironment:
         for key, value in changes.items():
             if not hasattr(config, key):
                 raise InvalidParameterError(f"Unknown source config field: {key}")
+            if key == "input_channels" and value != config.input_channels:
+                raise InvalidParameterError(
+                    "input_channels cannot be changed after a source is added; "
+                    "remove and re-add the source instead"
+                )
             setattr(config, key, value)
 
     def update_sources(
@@ -138,7 +149,13 @@ class AudioEnvironment:
         """Update multiple registered sources in one call."""
         for source_id, update in updates.items():
             if isinstance(update, SourceConfig):
-                self._ensure_source_exists(source_id)
+                current = self._ensure_source_exists(source_id)
+                self._validate_source_config(update)
+                if update.input_channels != current.input_channels:
+                    raise InvalidParameterError(
+                        "input_channels cannot be changed after a source is added; "
+                        "remove and re-add the source instead"
+                    )
                 self._sources[source_id] = replace(update)
                 continue
 

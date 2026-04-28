@@ -39,7 +39,7 @@ from .bindings.ctypes_bindings import (
     SCENE_OCCLUSION_VOLUMETRIC,
 )
 
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 __author__ = "Steam Audio Contributors"
 
 __all__ = [

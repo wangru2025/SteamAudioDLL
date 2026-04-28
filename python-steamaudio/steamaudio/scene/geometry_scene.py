@@ -198,6 +198,12 @@ class GeometryScene:
             raise InvalidParameterError("material_indices length must match triangles length")
         if not vertices or not triangles or not materials:
             raise InvalidParameterError("vertices, triangles, and materials cannot be empty")
+        num_materials = len(materials)
+        for i, material_index in enumerate(material_indices):
+            if int(material_index) < 0 or int(material_index) >= num_materials:
+                raise InvalidParameterError(
+                    f"Material index {material_index} at triangle {i} is out of range"
+                )
 
         c_vertices = (CVector3 * len(vertices))()
         for i, vertex in enumerate(vertices):
@@ -228,7 +234,7 @@ class GeometryScene:
             c_triangles,
             len(triangles),
             c_material_indices,
-            len(materials),
+            num_materials,
             c_materials,
         )
         if not handle:

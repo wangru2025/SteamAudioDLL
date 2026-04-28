@@ -7,7 +7,7 @@ with open("README.md", "r", encoding="utf-8") as fh:
 
 setup(
     name="steamaudio",
-    version="1.0.0",
+    version="1.1.0",
     author="Steam Audio Contributors",
     description="Python bindings for Steam Audio - 3D audio spatialization library",
     long_description=long_description,

@@ -87,6 +87,7 @@ docs/latex/
 test_results/
 coverage/
 .coverage
+htmlcov/
 
 # Local configuration
 local_config.cmake

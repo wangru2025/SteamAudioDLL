@@ -4,7 +4,7 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，版本遵循语义化版本。
 
-## [Unreleased]
+## [1.1.0] - 2026-04-28
 
 ### 新增
 
