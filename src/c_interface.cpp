@@ -6,6 +6,7 @@
 #include "direct_simulator.h"
 #include "room_reverb.h"
 #include "direct_effect.h"
+#include "reflection_effect.h"
 #include <map>
 #include <mutex>
 #include <memory>
@@ -18,6 +19,7 @@ static std::map<StaticMeshHandle, std::unique_ptr<StaticMesh>> g_static_meshes;
 static std::map<DirectSimulatorHandle, std::unique_ptr<DirectSimulator>> g_direct_simulators;
 static std::map<RoomReverbHandle, std::unique_ptr<RoomReverb>> g_reverbs;
 static std::map<DirectEffectHandle, std::unique_ptr<DirectEffect>> g_direct_effects;
+static std::map<ReflectionEffectHandle, std::unique_ptr<ReflectionEffect>> g_reflection_effects;
 static std::mutex g_processors_mutex;
 static std::mutex g_mixers_mutex;
 static std::mutex g_geometry_scenes_mutex;
@@ -25,6 +27,7 @@ static std::mutex g_static_meshes_mutex;
 static std::mutex g_direct_simulators_mutex;
 static std::mutex g_reverbs_mutex;
 static std::mutex g_direct_effects_mutex;
+static std::mutex g_reflection_effects_mutex;
 static std::string g_last_error;
 
 // Handle generation
@@ -35,6 +38,7 @@ static StaticMeshHandle g_next_static_mesh_handle = reinterpret_cast<StaticMeshH
 static DirectSimulatorHandle g_next_direct_simulator_handle = reinterpret_cast<DirectSimulatorHandle>(4000000);
 static RoomReverbHandle g_next_reverb_handle = reinterpret_cast<RoomReverbHandle>(5000000);
 static DirectEffectHandle g_next_direct_effect_handle = reinterpret_cast<DirectEffectHandle>(6000000);
+static ReflectionEffectHandle g_next_reflection_effect_handle = reinterpret_cast<ReflectionEffectHandle>(7000000);
 
 extern "C" {
 
@@ -59,6 +63,12 @@ RoomReverbHandle allocate_reverb_handle() {
 DirectEffectHandle allocate_direct_effect_handle() {
     DirectEffectHandle handle = g_next_direct_effect_handle;
     g_next_direct_effect_handle = reinterpret_cast<DirectEffectHandle>(reinterpret_cast<uintptr_t>(g_next_direct_effect_handle) + 1);
+    return handle;
+}
+
+ReflectionEffectHandle allocate_reflection_effect_handle() {
+    ReflectionEffectHandle handle = g_next_reflection_effect_handle;
+    g_next_reflection_effect_handle = reinterpret_cast<ReflectionEffectHandle>(reinterpret_cast<uintptr_t>(g_next_reflection_effect_handle) + 1);
     return handle;
 }
 
@@ -105,6 +115,10 @@ STEAMAUDIO_API void steam_audio_shutdown() {
     {
         std::lock_guard<std::mutex> lock(g_direct_effects_mutex);
         g_direct_effects.clear();
+    }
+    {
+        std::lock_guard<std::mutex> lock(g_reflection_effects_mutex);
+        g_reflection_effects.clear();
     }
     PhononWrapper::instance().shutdown();
 }
@@ -720,6 +734,58 @@ STEAMAUDIO_API SteamAudioError direct_simulator_run_direct(
     }
 }
 
+STEAMAUDIO_API SteamAudioError direct_simulator_set_reflection_settings(
+    DirectSimulatorHandle handle,
+    const ReflectionSimulationSettings* settings) {
+
+    try {
+        if (!settings) {
+            g_last_error = "Null pointer argument";
+            return STEAM_AUDIO_ERROR_INVALID_PARAM;
+        }
+
+        std::lock_guard<std::mutex> lock(g_direct_simulators_mutex);
+        auto it = g_direct_simulators.find(handle);
+        if (it == g_direct_simulators.end()) {
+            g_last_error = "Invalid direct simulator handle";
+            return STEAM_AUDIO_ERROR_INVALID_PARAM;
+        }
+
+        if (!it->second->set_reflection_settings(*settings)) {
+            g_last_error = "Failed to set reflection simulation settings";
+            return STEAM_AUDIO_ERROR_INVALID_PARAM;
+        }
+
+        return STEAM_AUDIO_OK;
+    } catch (const std::exception& e) {
+        g_last_error = e.what();
+        return STEAM_AUDIO_ERROR_PROCESSING_FAILED;
+    }
+}
+
+STEAMAUDIO_API SteamAudioError direct_simulator_run_reflections(
+    DirectSimulatorHandle handle) {
+
+    try {
+        std::lock_guard<std::mutex> lock(g_direct_simulators_mutex);
+        auto it = g_direct_simulators.find(handle);
+        if (it == g_direct_simulators.end()) {
+            g_last_error = "Invalid direct simulator handle";
+            return STEAM_AUDIO_ERROR_INVALID_PARAM;
+        }
+
+        if (!it->second->run_reflections()) {
+            g_last_error = "Failed to run reflection simulation";
+            return STEAM_AUDIO_ERROR_PROCESSING_FAILED;
+        }
+
+        return STEAM_AUDIO_OK;
+    } catch (const std::exception& e) {
+        g_last_error = e.what();
+        return STEAM_AUDIO_ERROR_PROCESSING_FAILED;
+    }
+}
+
 STEAMAUDIO_API SteamAudioError direct_simulator_get_direct_params(
     DirectSimulatorHandle handle,
     int source_id,
@@ -755,6 +821,137 @@ STEAMAUDIO_API SteamAudioError direct_simulator_get_direct_params(
         params->transmission[0] = direct_params.transmission[0];
         params->transmission[1] = direct_params.transmission[1];
         params->transmission[2] = direct_params.transmission[2];
+
+        return STEAM_AUDIO_OK;
+    } catch (const std::exception& e) {
+        g_last_error = e.what();
+        return STEAM_AUDIO_ERROR_PROCESSING_FAILED;
+    }
+}
+
+STEAMAUDIO_API ReflectionEffectHandle reflection_effect_create(
+    int max_order,
+    float max_duration) {
+    try {
+        if (!PhononWrapper::instance().is_initialized()) {
+            g_last_error = "Steam Audio not initialized";
+            return nullptr;
+        }
+
+        ReflectionEffectHandle handle = allocate_reflection_effect_handle();
+        {
+            std::lock_guard<std::mutex> lock(g_reflection_effects_mutex);
+            g_reflection_effects[handle] = std::make_unique<ReflectionEffect>(max_order, max_duration);
+        }
+
+        return handle;
+    } catch (const std::exception& e) {
+        g_last_error = e.what();
+        return nullptr;
+    }
+}
+
+STEAMAUDIO_API void reflection_effect_destroy(ReflectionEffectHandle handle) {
+    std::lock_guard<std::mutex> lock(g_reflection_effects_mutex);
+    g_reflection_effects.erase(handle);
+}
+
+STEAMAUDIO_API SteamAudioError reflection_effect_set_listener(
+    ReflectionEffectHandle handle,
+    const DirectListenerParams* params) {
+
+    try {
+        if (!params) {
+            g_last_error = "Null pointer argument";
+            return STEAM_AUDIO_ERROR_INVALID_PARAM;
+        }
+
+        std::lock_guard<std::mutex> lock(g_reflection_effects_mutex);
+        auto it = g_reflection_effects.find(handle);
+        if (it == g_reflection_effects.end()) {
+            g_last_error = "Invalid reflection effect handle";
+            return STEAM_AUDIO_ERROR_INVALID_PARAM;
+        }
+
+        if (!it->second->set_listener(*params)) {
+            g_last_error = "Failed to set reflection listener";
+            return STEAM_AUDIO_ERROR_INVALID_PARAM;
+        }
+
+        return STEAM_AUDIO_OK;
+    } catch (const std::exception& e) {
+        g_last_error = e.what();
+        return STEAM_AUDIO_ERROR_PROCESSING_FAILED;
+    }
+}
+
+STEAMAUDIO_API SteamAudioError reflection_effect_set_simulation_output(
+    ReflectionEffectHandle effect_handle,
+    DirectSimulatorHandle simulator_handle,
+    int source_id) {
+
+    try {
+        std::lock_guard<std::mutex> sim_lock(g_direct_simulators_mutex);
+        auto sim_it = g_direct_simulators.find(simulator_handle);
+        if (sim_it == g_direct_simulators.end()) {
+            g_last_error = "Invalid direct simulator handle";
+            return STEAM_AUDIO_ERROR_INVALID_PARAM;
+        }
+
+        IPLReflectionEffectParams reflection_params{};
+        if (!sim_it->second->get_reflection_params(source_id, reflection_params)) {
+            g_last_error = "Failed to get reflection simulation parameters";
+            return STEAM_AUDIO_ERROR_INVALID_PARAM;
+        }
+
+        std::lock_guard<std::mutex> effect_lock(g_reflection_effects_mutex);
+        auto effect_it = g_reflection_effects.find(effect_handle);
+        if (effect_it == g_reflection_effects.end()) {
+            g_last_error = "Invalid reflection effect handle";
+            return STEAM_AUDIO_ERROR_INVALID_PARAM;
+        }
+
+        if (!effect_it->second->set_simulation_params(reflection_params)) {
+            g_last_error = "Failed to set reflection simulation parameters";
+            return STEAM_AUDIO_ERROR_INVALID_PARAM;
+        }
+
+        return STEAM_AUDIO_OK;
+    } catch (const std::exception& e) {
+        g_last_error = e.what();
+        return STEAM_AUDIO_ERROR_PROCESSING_FAILED;
+    }
+}
+
+STEAMAUDIO_API SteamAudioError reflection_effect_process(
+    ReflectionEffectHandle handle,
+    const float* input_data,
+    int input_frame_count,
+    float* output_data,
+    int* output_frame_count) {
+
+    try {
+        if (!input_data || !output_data || !output_frame_count) {
+            g_last_error = "Null pointer argument";
+            return STEAM_AUDIO_ERROR_INVALID_PARAM;
+        }
+
+        if (input_frame_count <= 0) {
+            g_last_error = "Invalid frame count";
+            return STEAM_AUDIO_ERROR_INVALID_PARAM;
+        }
+
+        std::lock_guard<std::mutex> lock(g_reflection_effects_mutex);
+        auto it = g_reflection_effects.find(handle);
+        if (it == g_reflection_effects.end()) {
+            g_last_error = "Invalid reflection effect handle";
+            return STEAM_AUDIO_ERROR_INVALID_PARAM;
+        }
+
+        if (!it->second->process(input_data, input_frame_count, output_data, *output_frame_count)) {
+            g_last_error = "Reflection effect processing failed";
+            return STEAM_AUDIO_ERROR_PROCESSING_FAILED;
+        }
 
         return STEAM_AUDIO_OK;
     } catch (const std::exception& e) {

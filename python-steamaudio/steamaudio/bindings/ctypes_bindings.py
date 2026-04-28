@@ -103,6 +103,17 @@ class DirectSourceParams(Structure):
     ]
 
 
+class ReflectionSimulationSettings(Structure):
+    """Shared settings for reflection simulation."""
+    _fields_ = [
+        ("num_rays", c_int),
+        ("num_bounces", c_int),
+        ("duration", c_float),
+        ("order", c_int),
+        ("irradiance_min_distance", c_float),
+    ]
+
+
 # ============================================================================
 # Opaque Handle Types
 # ============================================================================
@@ -114,6 +125,7 @@ StaticMeshHandle = ctypes.c_void_p
 DirectSimulatorHandle = ctypes.c_void_p
 RoomReverbHandle = ctypes.c_void_p
 DirectEffectHandle = ctypes.c_void_p
+ReflectionEffectHandle = ctypes.c_void_p
 
 # ============================================================================
 # Error Codes
@@ -304,6 +316,17 @@ def setup_library_functions(lib):
     lib.direct_simulator_run_direct.restype = c_int
     lib.direct_simulator_run_direct.errcheck = _check_error
 
+    lib.direct_simulator_set_reflection_settings.argtypes = [
+        DirectSimulatorHandle,
+        POINTER(ReflectionSimulationSettings),
+    ]
+    lib.direct_simulator_set_reflection_settings.restype = c_int
+    lib.direct_simulator_set_reflection_settings.errcheck = _check_error
+
+    lib.direct_simulator_run_reflections.argtypes = [DirectSimulatorHandle]
+    lib.direct_simulator_run_reflections.restype = c_int
+    lib.direct_simulator_run_reflections.errcheck = _check_error
+
     lib.direct_simulator_get_direct_params.argtypes = [
         DirectSimulatorHandle,
         c_int,
@@ -390,6 +413,38 @@ def setup_library_functions(lib):
     ]
     lib.direct_effect_process.restype = c_int
     lib.direct_effect_process.errcheck = _check_error
+
+    # ===== Reflection Effect =====
+    lib.reflection_effect_create.argtypes = [c_int, c_float]
+    lib.reflection_effect_create.restype = ReflectionEffectHandle
+
+    lib.reflection_effect_destroy.argtypes = [ReflectionEffectHandle]
+    lib.reflection_effect_destroy.restype = None
+
+    lib.reflection_effect_set_listener.argtypes = [
+        ReflectionEffectHandle,
+        POINTER(DirectListenerParams),
+    ]
+    lib.reflection_effect_set_listener.restype = c_int
+    lib.reflection_effect_set_listener.errcheck = _check_error
+
+    lib.reflection_effect_set_simulation_output.argtypes = [
+        ReflectionEffectHandle,
+        DirectSimulatorHandle,
+        c_int,
+    ]
+    lib.reflection_effect_set_simulation_output.restype = c_int
+    lib.reflection_effect_set_simulation_output.errcheck = _check_error
+
+    lib.reflection_effect_process.argtypes = [
+        ReflectionEffectHandle,
+        POINTER(c_float),
+        c_int,
+        POINTER(c_float),
+        POINTER(c_int),
+    ]
+    lib.reflection_effect_process.restype = c_int
+    lib.reflection_effect_process.errcheck = _check_error
     
     # ===== Utility =====
     lib.steam_audio_get_error_message.argtypes = []

@@ -1,5 +1,6 @@
 #include "direct_simulator.h"
 #include "phonon_wrapper.h"
+#include <algorithm>
 #include <stdexcept>
 
 namespace {
@@ -17,10 +18,14 @@ DirectSimulator::DirectSimulator(IPLScene scene, int max_sources) {
     scene_ = iplSceneRetain(scene);
 
     IPLSimulationSettings settings{};
-    settings.flags = IPL_SIMULATIONFLAGS_DIRECT;
+    settings.flags = IPLSimulationFlags(IPL_SIMULATIONFLAGS_DIRECT | IPL_SIMULATIONFLAGS_REFLECTIONS);
     settings.sceneType = IPL_SCENETYPE_DEFAULT;
-    settings.reflectionType = IPL_REFLECTIONEFFECTTYPE_PARAMETRIC;
+    settings.reflectionType = IPL_REFLECTIONEFFECTTYPE_CONVOLUTION;
     settings.maxNumOcclusionSamples = 16;
+    settings.maxNumRays = 2048;
+    settings.numDiffuseSamples = 128;
+    settings.maxDuration = 2.0f;
+    settings.maxOrder = 2;
     settings.maxNumSources = max_sources;
     settings.numThreads = 1;
     settings.rayBatchSize = 64;
@@ -43,6 +48,11 @@ DirectSimulator::DirectSimulator(IPLScene scene, int max_sources) {
     shared_inputs_.listener.ahead = kDefaultAhead;
     shared_inputs_.listener.up = kDefaultUp;
     shared_inputs_.listener.right = kDefaultRight;
+    shared_inputs_.numRays = 1024;
+    shared_inputs_.numBounces = 16;
+    shared_inputs_.duration = 1.5f;
+    shared_inputs_.order = 1;
+    shared_inputs_.irradianceMinDistance = 1.0f;
 }
 
 DirectSimulator::~DirectSimulator() {
@@ -68,7 +78,7 @@ bool DirectSimulator::add_source(int source_id) {
     }
 
     IPLSourceSettings settings{};
-    settings.flags = IPL_SIMULATIONFLAGS_DIRECT;
+    settings.flags = IPLSimulationFlags(IPL_SIMULATIONFLAGS_DIRECT | IPL_SIMULATIONFLAGS_REFLECTIONS);
 
     SourceState state{};
     if (iplSourceCreate(simulator_, &settings, &state.source) != IPL_STATUS_SUCCESS) {
@@ -100,7 +110,11 @@ bool DirectSimulator::set_listener(const DirectListenerParams& params) {
     }
 
     shared_inputs_.listener = to_coordinate_space(params.listener);
-    iplSimulatorSetSharedInputs(simulator_, IPL_SIMULATIONFLAGS_DIRECT, &shared_inputs_);
+    iplSimulatorSetSharedInputs(
+        simulator_,
+        IPLSimulationFlags(IPL_SIMULATIONFLAGS_DIRECT | IPL_SIMULATIONFLAGS_REFLECTIONS),
+        &shared_inputs_
+    );
     return true;
 }
 
@@ -111,7 +125,7 @@ bool DirectSimulator::set_source(int source_id, const DirectSourceParams& params
     }
 
     IPLSimulationInputs inputs{};
-    inputs.flags = IPL_SIMULATIONFLAGS_DIRECT;
+    inputs.flags = IPLSimulationFlags(IPL_SIMULATIONFLAGS_DIRECT | IPL_SIMULATIONFLAGS_REFLECTIONS);
     inputs.directFlags = static_cast<IPLDirectSimulationFlags>(params.direct_flags);
     if ((inputs.directFlags & IPL_DIRECTSIMULATIONFLAGS_TRANSMISSION) &&
         !(inputs.directFlags & IPL_DIRECTSIMULATIONFLAGS_OCCLUSION)) {
@@ -126,6 +140,11 @@ bool DirectSimulator::set_source(int source_id, const DirectSourceParams& params
     inputs.directivity = {};
     inputs.directivity.dipoleWeight = 0.0f;
     inputs.directivity.dipolePower = 1.0f;
+    inputs.reverbScale[0] = 1.0f;
+    inputs.reverbScale[1] = 1.0f;
+    inputs.reverbScale[2] = 1.0f;
+    inputs.hybridReverbTransitionTime = 1.0f;
+    inputs.hybridReverbOverlapPercent = 0.25f;
     inputs.occlusionType = (params.occlusion_type == SCENE_OCCLUSION_VOLUMETRIC)
         ? IPL_OCCLUSIONTYPE_VOLUMETRIC
         : IPL_OCCLUSIONTYPE_RAYCAST;
@@ -133,7 +152,11 @@ bool DirectSimulator::set_source(int source_id, const DirectSourceParams& params
     inputs.numOcclusionSamples = (params.num_occlusion_samples > 0) ? params.num_occlusion_samples : 16;
     inputs.numTransmissionRays = (params.num_transmission_rays > 0) ? params.num_transmission_rays : 8;
 
-    iplSourceSetInputs(it->second.source, IPL_SIMULATIONFLAGS_DIRECT, &inputs);
+    iplSourceSetInputs(
+        it->second.source,
+        IPLSimulationFlags(IPL_SIMULATIONFLAGS_DIRECT | IPL_SIMULATIONFLAGS_REFLECTIONS),
+        &inputs
+    );
     return true;
 }
 
@@ -147,6 +170,35 @@ bool DirectSimulator::run_direct() {
     return true;
 }
 
+bool DirectSimulator::set_reflection_settings(const ReflectionSimulationSettings& settings) {
+    if (!simulator_) {
+        return false;
+    }
+
+    shared_inputs_.numRays = std::max(1, settings.num_rays);
+    shared_inputs_.numBounces = std::max(1, settings.num_bounces);
+    shared_inputs_.duration = std::max(0.1f, settings.duration);
+    shared_inputs_.order = std::max(0, settings.order);
+    shared_inputs_.irradianceMinDistance = std::max(0.1f, settings.irradiance_min_distance);
+
+    iplSimulatorSetSharedInputs(
+        simulator_,
+        IPL_SIMULATIONFLAGS_REFLECTIONS,
+        &shared_inputs_
+    );
+    return true;
+}
+
+bool DirectSimulator::run_reflections() {
+    if (!simulator_) {
+        return false;
+    }
+
+    commit_if_needed();
+    iplSimulatorRunReflections(simulator_);
+    return true;
+}
+
 bool DirectSimulator::get_direct_params(int source_id, IPLDirectEffectParams& params) {
     auto it = sources_.find(source_id);
     if (it == sources_.end()) {
@@ -156,6 +208,18 @@ bool DirectSimulator::get_direct_params(int source_id, IPLDirectEffectParams& pa
     IPLSimulationOutputs outputs{};
     iplSourceGetOutputs(it->second.source, IPL_SIMULATIONFLAGS_DIRECT, &outputs);
     params = outputs.direct;
+    return true;
+}
+
+bool DirectSimulator::get_reflection_params(int source_id, IPLReflectionEffectParams& params) {
+    auto it = sources_.find(source_id);
+    if (it == sources_.end()) {
+        return false;
+    }
+
+    IPLSimulationOutputs outputs{};
+    iplSourceGetOutputs(it->second.source, IPL_SIMULATIONFLAGS_REFLECTIONS, &outputs);
+    params = outputs.reflections;
     return true;
 }
 

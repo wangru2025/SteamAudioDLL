@@ -10,6 +10,7 @@
 - 直达声效果
 - 几何场景与材质
 - 基于场景的直达声模拟
+- 基于场景的反射效果
 
 ## 安装
 
@@ -118,7 +119,17 @@ with steamaudio.Context():
 
 ```python
 with steamaudio.Context():
-    env = steamaudio.AudioEnvironment(max_sources=2)
+    env = steamaudio.AudioEnvironment(
+        max_sources=2,
+        settings=steamaudio.EnvironmentSettings(
+            geometry=steamaudio.GeometrySettings(enabled=True),
+            indirect=steamaudio.IndirectSoundSettings(
+                enabled=True,
+                quality="medium",
+                mix_level=0.9,
+            ),
+        ),
+    )
     env.add_room(10.0, 3.0, 8.0, wall_material="plaster")
     env.add_wall_with_doorway("x", 0.0, -4.0, 4.0, 3.0, material="brick")
     env.commit_geometry()
@@ -132,6 +143,9 @@ with steamaudio.Context():
         }
     )
     env.set_listener(steamaudio.Vector3(0, 0, 0))
+    env.settings.indirect.num_rays = 1024
+    env.settings.indirect.num_bounces = 16
+    env.settings.indirect.duration = 1.5
 
     output = env.process({0: audio_1, 1: audio_2})
 ```
@@ -145,12 +159,17 @@ with steamaudio.Context():
 - `AudioMixer`
 - `RoomReverb`
 - `DirectEffect`
+- `ReflectionEffect`
 - `Material`
 - `GeometryScene`
 - `StaticMesh`
 - `DirectSimulator`
 - `AudioEnvironment`
 - `SourceConfig`
+- `GeometrySettings`
+- `DirectSoundSettings`
+- `IndirectSoundSettings`
+- `EnvironmentSettings`
 
 ## 材质预设
 

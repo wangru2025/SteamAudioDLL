@@ -23,6 +23,7 @@
 - 直达声效果
 - 几何场景与材质
 - 基于场景的直达声模拟
+- 基于场景的反射效果
 - 包含交互式 3D 音频演示
 
 ## 系统要求
@@ -186,7 +187,17 @@ with steamaudio.Context():
 
 ```python
 with steamaudio.Context():
-    env = steamaudio.AudioEnvironment(max_sources=2)
+    env = steamaudio.AudioEnvironment(
+        max_sources=2,
+        settings=steamaudio.EnvironmentSettings(
+            geometry=steamaudio.GeometrySettings(enabled=True),
+            indirect=steamaudio.IndirectSoundSettings(
+                enabled=True,
+                quality="medium",
+                mix_level=0.9,
+            ),
+        ),
+    )
     env.add_room(12.0, 3.0, 10.0, wall_material="plaster")
     env.add_wall_with_doorway("x", 0.0, -5.0, 5.0, 3.0, material="brick")
     env.commit_geometry()
@@ -195,6 +206,9 @@ with steamaudio.Context():
     env.add_source(1, steamaudio.SourceConfig(position=steamaudio.Vector3(2, 0, 0)))
     env.update_sources({1: {"occlusion_radius": 1.5, "num_occlusion_samples": 32}})
     env.set_listener(steamaudio.Vector3(0, 0, 0))
+    env.settings.indirect.num_rays = 1024
+    env.settings.indirect.num_bounces = 16
+    env.settings.indirect.duration = 1.5
 
     output = env.process({0: audio_chunk_1, 1: audio_chunk_2})
 ```
@@ -237,7 +251,7 @@ steam_audio_shutdown();
 
 ## 交互式演示
 
-演示应用提供了一个可视化的 3D 音频环境，并包含房间几何、隔墙、门洞、混响和直达声模拟。
+演示应用提供了一个可视化的 3D 音频环境，并包含房间几何、隔墙、门洞、混响、直达声和场景反射。
 
 ### 控制方式
 
@@ -246,6 +260,7 @@ steam_audio_shutdown();
 - `F3`：打开混响预设菜单
 - `F4`：打开几何设置对话框
 - `F5`：启用 / 禁用几何应用
+- `F6`：启用 / 禁用场景反射
 - `Alt + F4`：关闭窗口
 
 ## 文档

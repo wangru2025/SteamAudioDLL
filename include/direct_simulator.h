@@ -14,7 +14,10 @@ public:
     bool set_listener(const DirectListenerParams& params);
     bool set_source(int source_id, const DirectSourceParams& params);
     bool run_direct();
+    bool set_reflection_settings(const ReflectionSimulationSettings& settings);
+    bool run_reflections();
     bool get_direct_params(int source_id, IPLDirectEffectParams& params);
+    bool get_reflection_params(int source_id, IPLReflectionEffectParams& params);
 
 private:
     struct SourceState {

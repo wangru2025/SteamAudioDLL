@@ -48,12 +48,16 @@ REVERB_PRESETS = [
 @dataclass
 class GeometrySettings:
     geometry_enabled: bool = True
+    reflections_enabled: bool = True
     transmission_enabled: bool = False
     occlusion_mode: int = steamaudio.SCENE_OCCLUSION_RAYCAST
     occlusion_radius: float = 1.0
     occlusion_samples: int = 16
     transmission_rays: int = 8
     doorway_half_width: float = 1.2
+    reflection_num_rays: int = 1024
+    reflection_num_bounces: int = 16
+    reflection_duration: float = 1.5
     divider_material_key: str = "混凝土"
 
 
@@ -61,7 +65,7 @@ class GeometrySettingsDialog(wx.Dialog):
     """几何参数设置对话框。"""
 
     def __init__(self, parent, settings: GeometrySettings):
-        super().__init__(parent, title="几何设置", size=(420, 360))
+        super().__init__(parent, title="几何设置", size=(420, 420))
 
         panel = wx.Panel(self)
         sizer = wx.BoxSizer(wx.VERTICAL)
@@ -69,6 +73,8 @@ class GeometrySettingsDialog(wx.Dialog):
 
         self.geometry_enabled = wx.CheckBox(panel, label="启用几何应用")
         self.geometry_enabled.SetValue(settings.geometry_enabled)
+        self.reflections_enabled = wx.CheckBox(panel, label="启用反射")
+        self.reflections_enabled.SetValue(settings.reflections_enabled)
         self.transmission_enabled = wx.CheckBox(panel, label="启用透射")
         self.transmission_enabled.SetValue(settings.transmission_enabled)
 
@@ -88,6 +94,15 @@ class GeometrySettingsDialog(wx.Dialog):
         self.doorway_half_width = wx.SpinCtrlDouble(
             panel, min=0.5, max=8.0, initial=settings.doorway_half_width, inc=0.1
         )
+        self.reflection_num_rays = wx.SpinCtrl(
+            panel, min=64, max=4096, initial=settings.reflection_num_rays
+        )
+        self.reflection_num_bounces = wx.SpinCtrl(
+            panel, min=1, max=64, initial=settings.reflection_num_bounces
+        )
+        self.reflection_duration = wx.SpinCtrlDouble(
+            panel, min=0.1, max=4.0, initial=settings.reflection_duration, inc=0.1
+        )
         self.divider_material = wx.Choice(panel, choices=list(MATERIAL_PRESETS.keys()))
         self.divider_material.SetStringSelection(settings.divider_material_key)
 
@@ -97,6 +112,9 @@ class GeometrySettingsDialog(wx.Dialog):
             ("遮挡采样数", self.occlusion_samples),
             ("透射射线数", self.transmission_rays),
             ("门洞半宽", self.doorway_half_width),
+            ("反射射线数", self.reflection_num_rays),
+            ("反射反弹数", self.reflection_num_bounces),
+            ("反射时长", self.reflection_duration),
             ("隔墙材质", self.divider_material),
         ]
         for label, control in rows:
@@ -105,6 +123,7 @@ class GeometrySettingsDialog(wx.Dialog):
 
         grid.AddGrowableCol(1, 1)
         sizer.Add(self.geometry_enabled, 0, wx.ALL, 10)
+        sizer.Add(self.reflections_enabled, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
         sizer.Add(self.transmission_enabled, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
         sizer.Add(grid, 1, wx.ALL | wx.EXPAND, 10)
 
@@ -124,6 +143,7 @@ class GeometrySettingsDialog(wx.Dialog):
     def get_settings(self) -> GeometrySettings:
         return GeometrySettings(
             geometry_enabled=self.geometry_enabled.GetValue(),
+            reflections_enabled=self.reflections_enabled.GetValue(),
             transmission_enabled=self.transmission_enabled.GetValue(),
             occlusion_mode=(
                 steamaudio.SCENE_OCCLUSION_RAYCAST
@@ -134,6 +154,9 @@ class GeometrySettingsDialog(wx.Dialog):
             occlusion_samples=self.occlusion_samples.GetValue(),
             transmission_rays=self.transmission_rays.GetValue(),
             doorway_half_width=self.doorway_half_width.GetValue(),
+            reflection_num_rays=self.reflection_num_rays.GetValue(),
+            reflection_num_bounces=self.reflection_num_bounces.GetValue(),
+            reflection_duration=self.reflection_duration.GetValue(),
             divider_material_key=self.divider_material.GetStringSelection(),
         )
 
@@ -171,8 +194,15 @@ class AudioThread(threading.Thread):
         with self._settings_lock:
             self.geometry_settings.geometry_enabled = not self.geometry_settings.geometry_enabled
             if self.environment:
-                self.environment.set_geometry_enabled(self.geometry_settings.geometry_enabled)
+                self.environment.settings.geometry.enabled = self.geometry_settings.geometry_enabled
             return self.geometry_settings.geometry_enabled
+
+    def toggle_reflections(self):
+        with self._settings_lock:
+            self.geometry_settings.reflections_enabled = not self.geometry_settings.reflections_enabled
+            if self.environment:
+                self.environment.settings.indirect.enabled = self.geometry_settings.reflections_enabled
+            return self.geometry_settings.reflections_enabled
 
     def set_reverb_preset(self, preset: int):
         self.current_preset = preset
@@ -186,9 +216,21 @@ class AudioThread(threading.Thread):
     def _rebuild_environment(self, settings: GeometrySettings):
         if self.environment:
             self.environment._cleanup()
+        env_settings = steamaudio.EnvironmentSettings(
+            geometry=steamaudio.GeometrySettings(enabled=settings.geometry_enabled),
+            direct=steamaudio.DirectSoundSettings(enabled=True),
+            indirect=steamaudio.IndirectSoundSettings(
+                enabled=settings.reflections_enabled,
+                quality="medium",
+                num_rays=settings.reflection_num_rays,
+                num_bounces=settings.reflection_num_bounces,
+                duration=settings.reflection_duration,
+                order=1,
+            ),
+        )
         self.environment = steamaudio.AudioEnvironment(
             max_sources=8,
-            geometry_enabled=settings.geometry_enabled,
+            settings=env_settings,
         )
         self.environment.add_room(
             ROOM_WIDTH,
@@ -267,6 +309,10 @@ class AudioThread(threading.Thread):
                         settings.occlusion_samples,
                         settings.transmission_rays,
                         round(settings.doorway_half_width, 3),
+                        settings.reflections_enabled,
+                        settings.reflection_num_rays,
+                        settings.reflection_num_bounces,
+                        round(settings.reflection_duration, 3),
                         settings.divider_material_key,
                     )
                     if self._scene_dirty or signature != last_signature or self.environment is None:
@@ -426,8 +472,12 @@ class ScenePanel(wx.Panel):
         dc.SetTextForeground(wx.Colour(220, 220, 220))
         dc.DrawText("方向键：移动听者", 10, 10)
         dc.DrawText("空格：开关混响  F3：混响预设", 10, 30)
-        dc.DrawText("F4：几何设置  F5：开关几何应用", 10, 50)
-        dc.DrawText(f"隔墙材质：{self.settings.divider_material_key}", 10, 70)
+        dc.DrawText("F4：几何设置  F5：几何开关  F6：反射开关", 10, 50)
+        dc.DrawText(
+            f"反射：{'开' if self.settings.reflections_enabled else '关'}  隔墙材质：{self.settings.divider_material_key}",
+            10,
+            70,
+        )
 
     def update_state(self, listener_pos, sound_positions, occlusion, settings: GeometrySettings):
         self.listener_pos = listener_pos
@@ -465,8 +515,8 @@ class MainFrame(wx.Frame):
                 "听者初始位于房间左侧。\n"
                 "声源 2 默认在隔墙正后方，初始状态下会被明显遮挡。\n"
                 "F3 可以切换混响预设，空格可以实时开关混响。\n"
-                "F4 可以实时调整门洞宽度、材质、遮挡模式和透射参数。\n"
-                "F5 可以直接开关几何应用，方便对比效果。"
+                "F4 可以实时调整门洞宽度、材质、遮挡、透射和反射参数。\n"
+                "F5 可以开关几何，F6 可以单独开关场景反射。"
             ),
         )
         sizer.Add(self.info, 0, wx.ALL | wx.EXPAND, 10)
@@ -537,6 +587,7 @@ class MainFrame(wx.Frame):
             self.SetStatusText,
             f"听者=({listener_pos[0]:.1f}, {listener_pos[1]:.1f}) | "
             f"几何={'开' if settings.geometry_enabled else '关'} | "
+            f"反射={'开' if settings.reflections_enabled else '关'} | "
             f"遮挡 声源1={occlusion[0]:.2f} 声源2={occlusion[1]:.2f}",
         )
 
@@ -603,6 +654,13 @@ class MainFrame(wx.Frame):
             self.scene_panel.settings = self.geometry_settings
             self.scene_panel.Refresh()
             self.SetStatusText(f"几何应用已{'开启' if enabled else '关闭'}")
+            return
+        elif key == wx.WXK_F6 and self.audio_thread:
+            enabled = self.audio_thread.toggle_reflections()
+            self.geometry_settings.reflections_enabled = enabled
+            self.scene_panel.settings = self.geometry_settings
+            self.scene_panel.Refresh()
+            self.SetStatusText(f"场景反射已{'开启' if enabled else '关闭'}")
             return
         else:
             event.Skip()

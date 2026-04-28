@@ -11,6 +11,7 @@
 - 增加几何场景与材质相关的 C 接口
 - 增加 `GeometryScene`、`StaticMesh`、`Material` Python API
 - 增加 `DirectSimulator` Python API
+- 增加 `ReflectionEffect` 与几何驱动的反射模拟接口
 - 增加 `AudioEnvironment` 的高层几何 helper，包括房间、箱体、门洞墙和统一提交入口
 - 增加 `AudioEnvironment.update_sources(...)` 批量声源更新接口
 - 增加基于场景的直达声模拟示例
@@ -20,6 +21,7 @@
 
 - 构建后自动同步运行 Python 所需的 DLL 到 `python-steamaudio/steamaudio/bindings/dll/`
 - 演示应用补充混响和几何的快捷键控制
+- `AudioEnvironment` 支持场景反射混音
 - 演示应用和真实库测试改为优先使用 `AudioEnvironment` 高层几何接口，减少直接访问底层 `scene`
 - 重写 README、Python 包 README 和 API 文档
 

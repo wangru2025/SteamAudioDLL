@@ -25,10 +25,18 @@ from .spatial.spatialization import SpatializationParams
 from .processor.audio_processor import AudioProcessor
 from .processor.audio_mixer import AudioMixer
 from .scene.geometry_scene import GeometryScene, StaticMesh, Material, MaterialRegistry
-from .environment.audio_environment import AudioEnvironment, SourceConfig
+from .environment.audio_environment import (
+    AudioEnvironment,
+    DirectSoundSettings,
+    EnvironmentSettings,
+    GeometrySettings,
+    IndirectSoundSettings,
+    SourceConfig,
+)
 from .simulation.direct_simulator import DirectSimulator
 from .effects.room_reverb import RoomReverb
 from .effects.direct_effect import DirectEffect
+from .effects.reflection_effect import ReflectionEffect
 from .bindings.ctypes_bindings import (
     DIRECT_EFFECT_APPLY_AIR_ABSORPTION,
     DIRECT_EFFECT_APPLY_DISTANCE_ATTENUATION,
@@ -54,9 +62,14 @@ __all__ = [
     "MaterialRegistry",
     "AudioEnvironment",
     "SourceConfig",
+    "GeometrySettings",
+    "DirectSoundSettings",
+    "IndirectSoundSettings",
+    "EnvironmentSettings",
     "DirectSimulator",
     "RoomReverb",
     "DirectEffect",
+    "ReflectionEffect",
     "DIRECT_EFFECT_APPLY_AIR_ABSORPTION",
     "DIRECT_EFFECT_APPLY_DISTANCE_ATTENUATION",
     "DIRECT_EFFECT_APPLY_DIRECTIVITY",

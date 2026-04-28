@@ -142,6 +142,7 @@ set(SOURCES
     src/direct_simulator.cpp
     src/room_reverb.cpp
     src/direct_effect.cpp
+    src/reflection_effect.cpp
     src/c_interface.cpp
 )
 
@@ -153,6 +154,7 @@ set(HEADERS
     include/direct_simulator.h
     include/room_reverb.h
     include/direct_effect.h
+    include/reflection_effect.h
     include/c_interface.h
 )
 

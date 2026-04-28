@@ -379,3 +379,59 @@ class TestDirectEffect:
                 
                 assert output.shape == (4,)
                 assert output.dtype == np.float32
+
+
+class TestReflectionEffect:
+    """Test ReflectionEffect class."""
+
+    def test_effect_creation_without_context(self):
+        with pytest.raises(steamaudio.AudioProcessingError):
+            steamaudio.ReflectionEffect()
+
+    def test_effect_creation(self):
+        with patch('steamaudio.core.context.Context.is_initialized', return_value=True):
+            mock_lib = MagicMock()
+            mock_lib.reflection_effect_create.return_value = 7000000
+
+            with patch('steamaudio.bindings.loader.get_library', return_value=mock_lib):
+                effect = steamaudio.ReflectionEffect(max_order=1, max_duration=1.5)
+                assert effect is not None
+
+    def test_set_listener_and_simulation_output(self):
+        with patch('steamaudio.core.context.Context.is_initialized', return_value=True):
+            mock_lib = MagicMock()
+            mock_lib.reflection_effect_create.return_value = 7000000
+
+            with patch('steamaudio.bindings.loader.get_library', return_value=mock_lib):
+                effect = steamaudio.ReflectionEffect()
+                simulator = MagicMock()
+                simulator._handle = 4000000
+
+                effect.set_listener(steamaudio.Vector3(0, 0, 0))
+                effect.set_simulation_output(simulator, 3)
+
+                mock_lib.reflection_effect_set_listener.assert_called_once()
+                mock_lib.reflection_effect_set_simulation_output.assert_called_once_with(
+                    7000000,
+                    4000000,
+                    3,
+                )
+
+    def test_process_audio(self):
+        with patch('steamaudio.core.context.Context.is_initialized', return_value=True):
+            mock_lib = MagicMock()
+            mock_lib.reflection_effect_create.return_value = 7000000
+
+            def mock_process(handle, input_ptr, frames, output_ptr, output_frames):
+                output_frames.contents.value = frames
+                return None
+
+            mock_lib.reflection_effect_process.side_effect = mock_process
+
+            with patch('steamaudio.bindings.loader.get_library', return_value=mock_lib):
+                effect = steamaudio.ReflectionEffect()
+                audio = np.random.randn(128).astype(np.float32)
+                output = effect.process(audio)
+
+                assert output.shape == (128, 2)
+                assert output.dtype == np.float32

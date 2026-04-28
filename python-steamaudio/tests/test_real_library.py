@@ -247,6 +247,15 @@ class TestRealLibraryDirectEffect:
             assert output.dtype == np.float32
 
 
+class TestRealLibraryReflectionEffect:
+    """Test ReflectionEffect with the real library."""
+
+    def test_reflection_effect_creation(self):
+        with steamaudio.Context():
+            effect = steamaudio.ReflectionEffect(max_order=1, max_duration=1.0)
+            assert effect is not None
+
+
 class TestRealLibraryComplexWorkflow:
     """Test complex workflows with real library."""
     

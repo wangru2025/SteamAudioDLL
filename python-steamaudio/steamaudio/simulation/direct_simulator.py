@@ -12,6 +12,7 @@ from ..bindings.ctypes_bindings import (
     DirectSimulationParams as CDirectSimulationParams,
     DirectSimulatorHandle,
     DirectSourceParams as CDirectSourceParams,
+    ReflectionSimulationSettings as CReflectionSimulationSettings,
     SCENE_OCCLUSION_RAYCAST,
     Vector3 as CVector3,
 )
@@ -112,6 +113,33 @@ class DirectSimulator:
         if not self._handle:
             raise AudioProcessingError("Direct simulator has been destroyed")
         loader.get_library().direct_simulator_run_direct(self._handle)
+
+    def set_reflection_settings(
+        self,
+        num_rays: int = 1024,
+        num_bounces: int = 16,
+        duration: float = 1.5,
+        order: int = 1,
+        irradiance_min_distance: float = 1.0,
+    ) -> None:
+        if not self._handle:
+            raise AudioProcessingError("Direct simulator has been destroyed")
+
+        params = CReflectionSimulationSettings()
+        params.num_rays = num_rays
+        params.num_bounces = num_bounces
+        params.duration = duration
+        params.order = order
+        params.irradiance_min_distance = irradiance_min_distance
+        loader.get_library().direct_simulator_set_reflection_settings(
+            self._handle,
+            ctypes.pointer(params),
+        )
+
+    def run_reflections(self) -> None:
+        if not self._handle:
+            raise AudioProcessingError("Direct simulator has been destroyed")
+        loader.get_library().direct_simulator_run_reflections(self._handle)
 
     def get_direct_params(self, source_id: int) -> CDirectSimulationParams:
         if not self._handle:

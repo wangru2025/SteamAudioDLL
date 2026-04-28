@@ -5,9 +5,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field, replace
 from typing import Dict, Mapping, Optional, Sequence
 
+import numpy as np
+
 from ..core.context import Context
 from ..core.exceptions import AudioProcessingError, InvalidParameterError
 from ..effects.direct_effect import DirectEffect
+from ..effects.reflection_effect import ReflectionEffect
 from ..processor.audio_mixer import AudioMixer
 from ..scene.geometry_scene import GeometryScene, MaterialRegistry
 from ..simulation.direct_simulator import DirectSimulator
@@ -43,6 +46,84 @@ class SourceConfig:
     input_channels: int = 1
 
 
+@dataclass
+class GeometrySettings:
+    """Global geometry-related settings for an audio environment."""
+
+    enabled: bool = True
+
+
+@dataclass
+class DirectSoundSettings:
+    """Global direct-path settings for an audio environment."""
+
+    enabled: bool = True
+
+
+@dataclass
+class IndirectSoundSettings:
+    """Global reflection and indirect-sound settings for an audio environment."""
+
+    enabled: bool = False
+    quality: str = "medium"
+    mix_level: float = 1.0
+    num_rays: Optional[int] = None
+    num_bounces: Optional[int] = None
+    duration: Optional[float] = None
+    order: Optional[int] = None
+    irradiance_min_distance: float = 1.0
+
+    QUALITY_PRESETS = {
+        "low": {
+            "num_rays": 256,
+            "num_bounces": 8,
+            "duration": 1.0,
+            "order": 1,
+        },
+        "medium": {
+            "num_rays": 1024,
+            "num_bounces": 16,
+            "duration": 1.5,
+            "order": 1,
+        },
+        "high": {
+            "num_rays": 2048,
+            "num_bounces": 32,
+            "duration": 2.0,
+            "order": 2,
+        },
+    }
+
+    def resolved(self) -> dict[str, float | int]:
+        """Resolve quality preset and explicit overrides to concrete simulator values."""
+        if self.quality not in self.QUALITY_PRESETS:
+            raise InvalidParameterError(
+                f"indirect quality must be one of {sorted(self.QUALITY_PRESETS)}, got {self.quality}"
+            )
+
+        values = dict(self.QUALITY_PRESETS[self.quality])
+        if self.num_rays is not None:
+            values["num_rays"] = self.num_rays
+        if self.num_bounces is not None:
+            values["num_bounces"] = self.num_bounces
+        if self.duration is not None:
+            values["duration"] = self.duration
+        if self.order is not None:
+            values["order"] = self.order
+
+        values["irradiance_min_distance"] = self.irradiance_min_distance
+        return values
+
+
+@dataclass
+class EnvironmentSettings:
+    """High-level settings object intended to be the main configuration entry point."""
+
+    geometry: GeometrySettings = field(default_factory=GeometrySettings)
+    direct: DirectSoundSettings = field(default_factory=DirectSoundSettings)
+    indirect: IndirectSoundSettings = field(default_factory=IndirectSoundSettings)
+
+
 class AudioEnvironment:
     """High-level object that manages scene, simulation, and playback helpers."""
 
@@ -50,7 +131,9 @@ class AudioEnvironment:
         self,
         scene: Optional[GeometryScene] = None,
         max_sources: int = 16,
-        geometry_enabled: bool = True,
+        settings: Optional[EnvironmentSettings] = None,
+        geometry_enabled: Optional[bool] = None,
+        reflections_enabled: Optional[bool] = None,
         material_registry: Optional[MaterialRegistry] = None,
     ):
         if not Context.is_initialized():
@@ -59,13 +142,19 @@ class AudioEnvironment:
         self.scene = scene or GeometryScene(material_registry=material_registry)
         self.mixer = AudioMixer(max_sources=max_sources)
         self.simulator = DirectSimulator(self.scene, max_sources=max_sources)
-        self.geometry_enabled = geometry_enabled
+        self.settings = settings if settings is not None else EnvironmentSettings()
+        if geometry_enabled is not None:
+            self.settings.geometry.enabled = geometry_enabled
+        if reflections_enabled is not None:
+            self.settings.indirect.enabled = reflections_enabled
         self.listener_position = Vector3(0.0, 0.0, 0.0)
         self.listener_ahead = Vector3(0.0, 0.0, -1.0)
         self.listener_up = Vector3(0.0, 1.0, 0.0)
         self._sources: Dict[int, SourceConfig] = {}
         self._effects: Dict[int, DirectEffect] = {}
+        self._reflection_effects: Dict[int, ReflectionEffect] = {}
         self._last_direct_params = {}
+        self._reflection_effect_signature: Optional[tuple[int, float]] = None
 
     def _ensure_source_exists(self, source_id: int) -> SourceConfig:
         try:
@@ -78,13 +167,34 @@ class AudioEnvironment:
         if config.input_channels not in (1, 2):
             raise InvalidParameterError("input_channels must be 1 or 2")
 
+    @property
+    def geometry_enabled(self) -> bool:
+        """Backward-compatible alias for settings.geometry.enabled."""
+        return self.settings.geometry.enabled
+
+    @geometry_enabled.setter
+    def geometry_enabled(self, enabled: bool) -> None:
+        self.settings.geometry.enabled = enabled
+
+    @property
+    def reflections_enabled(self) -> bool:
+        """Backward-compatible alias for settings.indirect.enabled."""
+        return self.settings.indirect.enabled
+
+    @reflections_enabled.setter
+    def reflections_enabled(self, enabled: bool) -> None:
+        self.settings.indirect.enabled = enabled
+
     def __del__(self):
         self._cleanup()
 
     def _cleanup(self):
         for effect in list(self._effects.values()):
             effect._cleanup()
+        for effect in list(self._reflection_effects.values()):
+            effect._cleanup()
         self._effects.clear()
+        self._reflection_effects.clear()
         self._sources.clear()
         if hasattr(self, "simulator") and self.simulator:
             self.simulator._cleanup()
@@ -96,6 +206,34 @@ class AudioEnvironment:
     def set_geometry_enabled(self, enabled: bool) -> None:
         """Enable or disable geometry-driven direct simulation."""
         self.geometry_enabled = enabled
+
+    def set_reflections_enabled(self, enabled: bool) -> None:
+        """Enable or disable geometry-driven reflections."""
+        self.settings.indirect.enabled = enabled
+
+    def set_indirect_quality(self, quality: str) -> None:
+        """Set an indirect-sound quality preset."""
+        self.settings.indirect.quality = quality
+
+    def set_reflection_settings(
+        self,
+        *,
+        num_rays: Optional[int] = None,
+        num_bounces: Optional[int] = None,
+        duration: Optional[float] = None,
+        order: Optional[int] = None,
+        irradiance_min_distance: Optional[float] = None,
+    ) -> None:
+        if num_rays is not None:
+            self.settings.indirect.num_rays = num_rays
+        if num_bounces is not None:
+            self.settings.indirect.num_bounces = num_bounces
+        if duration is not None:
+            self.settings.indirect.duration = duration
+        if order is not None:
+            self.settings.indirect.order = order
+        if irradiance_min_distance is not None:
+            self.settings.indirect.irradiance_min_distance = irradiance_min_distance
 
     def set_listener(
         self,
@@ -117,6 +255,7 @@ class AudioEnvironment:
         self.mixer.add_source(source_id, input_channels=config.input_channels)
         self.simulator.add_source(source_id)
         self._effects[source_id] = DirectEffect()
+        self._reflection_effects[source_id] = self._create_reflection_effect()
         self._sources[source_id] = replace(config)
 
     def remove_source(self, source_id: int) -> None:
@@ -125,7 +264,9 @@ class AudioEnvironment:
         self.mixer.remove_source(source_id)
         self.simulator.remove_source(source_id)
         self._effects[source_id]._cleanup()
+        self._reflection_effects[source_id]._cleanup()
         del self._effects[source_id]
+        del self._reflection_effects[source_id]
         del self._sources[source_id]
         self._last_direct_params.pop(source_id, None)
 
@@ -238,6 +379,16 @@ class AudioEnvironment:
         """Retrieve the latest direct simulation params for a source."""
         return self._last_direct_params.get(source_id)
 
+    def configure_for_headphones(self) -> None:
+        """Apply a balanced preset for binaural listening."""
+        self.settings.indirect.quality = "medium"
+        self.settings.indirect.mix_level = 1.0
+
+    def configure_for_speakers(self) -> None:
+        """Apply a slightly lighter indirect mix for speaker playback."""
+        self.settings.indirect.quality = "low"
+        self.settings.indirect.mix_level = 0.7
+
     def process(self, sources_data: Dict[int, object]) -> object:
         """Run direct simulation, apply direct effects, and mix all sources."""
         if not self._sources:
@@ -250,12 +401,13 @@ class AudioEnvironment:
             ahead=self.listener_ahead,
             up=self.listener_up,
         )
+        self._sync_reflection_effects()
 
         processed_sources = {}
         spatial_params = {}
 
         for source_id, config in self._sources.items():
-            if self.geometry_enabled:
+            if self.settings.geometry.enabled:
                 self.simulator.set_source(
                     source_id,
                     config.position,
@@ -282,7 +434,7 @@ class AudioEnvironment:
 
             processed_sources[source_id] = sources_data[source_id]
 
-        if self.geometry_enabled:
+        if self.settings.geometry.enabled and self.settings.direct.enabled:
             self.simulator.run_direct()
             for source_id in self._sources:
                 sim_params = self.simulator.get_direct_params(source_id)
@@ -292,4 +444,58 @@ class AudioEnvironment:
         else:
             self._last_direct_params.clear()
 
-        return self.mixer.process(processed_sources, spatial_params)
+        direct_mix = self.mixer.process(processed_sources, spatial_params)
+
+        if not (self.settings.geometry.enabled and self.settings.indirect.enabled):
+            return direct_mix
+
+        indirect_values = self.settings.indirect.resolved()
+        self.simulator.set_reflection_settings(
+            num_rays=int(indirect_values["num_rays"]),
+            num_bounces=int(indirect_values["num_bounces"]),
+            duration=float(indirect_values["duration"]),
+            order=int(indirect_values["order"]),
+            irradiance_min_distance=float(indirect_values["irradiance_min_distance"]),
+        )
+        self.simulator.run_reflections()
+
+        indirect_mix = np.zeros_like(direct_mix)
+        for source_id in self._sources:
+            effect = self._reflection_effects[source_id]
+            effect.set_listener(
+                self.listener_position,
+                ahead=self.listener_ahead,
+                up=self.listener_up,
+            )
+            effect.set_simulation_output(self.simulator, source_id)
+            reflected = effect.process(self._to_mono(sources_data[source_id]))
+            indirect_mix[: reflected.shape[0], :] += reflected * self.settings.indirect.mix_level
+
+        return direct_mix + indirect_mix
+
+    def _create_reflection_effect(self) -> ReflectionEffect:
+        values = self.settings.indirect.resolved()
+        return ReflectionEffect(
+            max_order=int(values["order"]),
+            max_duration=float(values["duration"]),
+        )
+
+    def _sync_reflection_effects(self) -> None:
+        values = self.settings.indirect.resolved()
+        signature = (int(values["order"]), float(values["duration"]))
+        if signature == self._reflection_effect_signature:
+            return
+
+        for source_id in list(self._reflection_effects.keys()):
+            self._reflection_effects[source_id]._cleanup()
+            self._reflection_effects[source_id] = self._create_reflection_effect()
+        self._reflection_effect_signature = signature
+
+    @staticmethod
+    def _to_mono(audio_data: object):
+        audio = np.asarray(audio_data, dtype=np.float32)
+        if audio.ndim == 1:
+            return audio
+        if audio.ndim == 2:
+            return audio.mean(axis=1, dtype=np.float32)
+        raise InvalidParameterError(f"Expected 1D or 2D audio array, got {audio.ndim}D")

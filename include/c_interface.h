@@ -20,6 +20,7 @@ typedef void* AudioProcessorHandle;
 typedef void* GeometrySceneHandle;
 typedef void* StaticMeshHandle;
 typedef void* DirectSimulatorHandle;
+typedef void* ReflectionEffectHandle;
 
 /* Error codes */
 typedef enum {
@@ -105,6 +106,14 @@ typedef struct {
     int num_occlusion_samples;
     int num_transmission_rays;
 } DirectSourceParams;
+
+typedef struct {
+    int num_rays;
+    int num_bounces;
+    float duration;
+    int order;
+    float irradiance_min_distance;
+} ReflectionSimulationSettings;
 
 /* ===== Core Initialization ===== */
 
@@ -239,6 +248,15 @@ STEAMAUDIO_API SteamAudioError direct_simulator_run_direct(
     DirectSimulatorHandle handle
 );
 
+STEAMAUDIO_API SteamAudioError direct_simulator_set_reflection_settings(
+    DirectSimulatorHandle handle,
+    const ReflectionSimulationSettings* settings
+);
+
+STEAMAUDIO_API SteamAudioError direct_simulator_run_reflections(
+    DirectSimulatorHandle handle
+);
+
 STEAMAUDIO_API SteamAudioError direct_simulator_get_direct_params(
     DirectSimulatorHandle handle,
     int source_id,
@@ -363,6 +381,34 @@ STEAMAUDIO_API SteamAudioError direct_effect_set_simulation_params(
 /* Process audio through direct effect */
 STEAMAUDIO_API SteamAudioError direct_effect_process(
     DirectEffectHandle handle,
+    const float* input_data,
+    int input_frame_count,
+    float* output_data,
+    int* output_frame_count
+);
+
+/* ===== Reflection Effect ===== */
+
+STEAMAUDIO_API ReflectionEffectHandle reflection_effect_create(
+    int max_order,
+    float max_duration
+);
+
+STEAMAUDIO_API void reflection_effect_destroy(ReflectionEffectHandle handle);
+
+STEAMAUDIO_API SteamAudioError reflection_effect_set_listener(
+    ReflectionEffectHandle handle,
+    const DirectListenerParams* params
+);
+
+STEAMAUDIO_API SteamAudioError reflection_effect_set_simulation_output(
+    ReflectionEffectHandle effect_handle,
+    DirectSimulatorHandle simulator_handle,
+    int source_id
+);
+
+STEAMAUDIO_API SteamAudioError reflection_effect_process(
+    ReflectionEffectHandle handle,
     const float* input_data,
     int input_frame_count,
     float* output_data,
