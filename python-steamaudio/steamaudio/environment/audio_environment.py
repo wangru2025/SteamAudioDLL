@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import threading
+import time
 from dataclasses import dataclass, field, replace
 from typing import Dict, Mapping, Optional, Sequence
 
@@ -143,6 +145,7 @@ class AudioEnvironment:
         self.scene = scene or GeometryScene(material_registry=material_registry)
         self.mixer = AudioMixer(max_sources=max_sources)
         self.simulator = DirectSimulator(self.scene, max_sources=max_sources)
+        self._reflection_simulator = DirectSimulator(self.scene, max_sources=max_sources)
         self.settings = settings if settings is not None else EnvironmentSettings()
         if geometry_enabled is not None:
             self.settings.geometry.enabled = geometry_enabled
@@ -157,7 +160,9 @@ class AudioEnvironment:
         self._last_direct_params = {}
         self._reflection_effect_signature: Optional[tuple[int, float]] = None
         self._reflection_needs_update = True
-        self._reflection_blocks_until_update = 0
+        self._reflection_thread_stop = threading.Event()
+        self._reflection_thread: Optional[threading.Thread] = None
+        self._start_reflection_worker_if_available()
 
     def _ensure_source_exists(self, source_id: int) -> SourceConfig:
         try:
@@ -194,6 +199,7 @@ class AudioEnvironment:
         self._cleanup()
 
     def _cleanup(self):
+        self._stop_reflection_worker()
         for effect in list(self._effects.values()):
             effect._cleanup()
         for effect in list(self._reflection_effects.values()):
@@ -201,6 +207,8 @@ class AudioEnvironment:
         self._effects.clear()
         self._reflection_effects.clear()
         self._sources.clear()
+        if hasattr(self, "_reflection_simulator") and self._reflection_simulator:
+            self._reflection_simulator._cleanup()
         if hasattr(self, "simulator") and self.simulator:
             self.simulator._cleanup()
         if hasattr(self, "mixer") and self.mixer:
@@ -263,6 +271,7 @@ class AudioEnvironment:
         self._validate_source_config(config)
         self.mixer.add_source(source_id, input_channels=config.input_channels)
         self.simulator.add_source(source_id)
+        self._reflection_simulator.add_source(source_id)
         self._effects[source_id] = DirectEffect()
         self._reflection_effects[source_id] = self._create_reflection_effect()
         self._sources[source_id] = replace(config)
@@ -273,6 +282,7 @@ class AudioEnvironment:
         self._ensure_source_exists(source_id)
         self.mixer.remove_source(source_id)
         self.simulator.remove_source(source_id)
+        self._reflection_simulator.remove_source(source_id)
         self._effects[source_id]._cleanup()
         self._reflection_effects[source_id]._cleanup()
         del self._effects[source_id]
@@ -464,16 +474,8 @@ class AudioEnvironment:
         if not (self.settings.geometry.enabled and self.settings.indirect.enabled):
             return direct_mix
 
-        indirect_values = self.settings.indirect.resolved()
-        self.simulator.set_reflection_settings(
-            num_rays=int(indirect_values["num_rays"]),
-            num_bounces=int(indirect_values["num_bounces"]),
-            duration=float(indirect_values["duration"]),
-            order=int(indirect_values["order"]),
-            irradiance_min_distance=float(indirect_values["irradiance_min_distance"]),
-        )
-        if self._should_run_reflections():
-            self.simulator.run_reflections()
+        self._validate_indirect_settings()
+        self._run_reflection_update_if_needed_without_worker()
 
         indirect_mix = np.zeros_like(direct_mix)
         for source_id in self._sources:
@@ -483,7 +485,7 @@ class AudioEnvironment:
                 ahead=self.listener_ahead,
                 up=self.listener_up,
             )
-            effect.set_simulation_output(self.simulator, source_id)
+            effect.set_simulation_output(self._reflection_simulator, source_id)
             reflected = effect.process(self._to_mono(sources_data[source_id]))
             indirect_mix[: reflected.shape[0], :] += reflected * self.settings.indirect.mix_level
 
@@ -510,30 +512,83 @@ class AudioEnvironment:
 
     def _mark_reflections_dirty(self) -> None:
         self._reflection_needs_update = True
-        self._reflection_blocks_until_update = 0
 
-    def _should_run_reflections(self) -> bool:
-        if self._reflection_needs_update:
-            self._reflection_needs_update = False
-            self._reflection_blocks_until_update = self._reflection_update_interval_blocks() - 1
-            return True
-        if self._reflection_blocks_until_update > 0:
-            self._reflection_blocks_until_update -= 1
-            return False
-        self._reflection_blocks_until_update = self._reflection_update_interval_blocks() - 1
-        return True
-
-    def _reflection_update_interval_blocks(self) -> int:
+    def _validate_indirect_settings(self) -> None:
         update_rate_hz = float(self.settings.indirect.update_rate_hz)
         if update_rate_hz <= 0.0:
             raise InvalidParameterError("indirect update_rate_hz must be positive")
 
-        context = Context.get_instance()
-        if context is None:
-            return 1
+    def _reflection_update_interval_seconds(self) -> float:
+        self._validate_indirect_settings()
+        return 1.0 / float(self.settings.indirect.update_rate_hz)
 
-        blocks_per_second = context.sample_rate / context.frame_size
-        return max(1, int(round(blocks_per_second / update_rate_hz)))
+    def _start_reflection_worker_if_available(self) -> None:
+        if Context.get_instance() is None:
+            return
+        self._reflection_thread = threading.Thread(
+            target=self._reflection_worker_main,
+            name="SteamAudioReflectionWorker",
+            daemon=True,
+        )
+        self._reflection_thread.start()
+
+    def _stop_reflection_worker(self) -> None:
+        if hasattr(self, "_reflection_thread_stop"):
+            self._reflection_thread_stop.set()
+        if getattr(self, "_reflection_thread", None):
+            self._reflection_thread.join(timeout=1.0)
+            self._reflection_thread = None
+
+    def _run_reflection_update_if_needed_without_worker(self) -> None:
+        if self._reflection_thread is not None:
+            return
+        if self._reflection_needs_update:
+            self._run_reflection_update()
+
+    def _reflection_worker_main(self) -> None:
+        while not self._reflection_thread_stop.is_set():
+            try:
+                if (
+                    self.settings.geometry.enabled
+                    and self.settings.indirect.enabled
+                    and self._sources
+                ):
+                    self._run_reflection_update()
+                wait_seconds = self._reflection_update_interval_seconds()
+            except Exception:
+                wait_seconds = 0.1
+            self._reflection_thread_stop.wait(wait_seconds)
+
+    def _run_reflection_update(self) -> None:
+        indirect_values = self.settings.indirect.resolved()
+        self._reflection_simulator.set_listener(
+            self.listener_position,
+            ahead=self.listener_ahead,
+            up=self.listener_up,
+        )
+        for source_id, config in self._sources.items():
+            self._reflection_simulator.set_source(
+                source_id,
+                config.position,
+                ahead=config.ahead,
+                up=config.up,
+                min_distance=config.min_distance,
+                direct_flags=config.direct_flags,
+                occlusion_type=config.occlusion_type,
+                occlusion_radius=config.occlusion_radius,
+                num_occlusion_samples=config.num_occlusion_samples,
+                num_transmission_rays=config.num_transmission_rays,
+            )
+        self._reflection_simulator.set_reflection_settings(
+            num_rays=int(indirect_values["num_rays"]),
+            num_bounces=int(indirect_values["num_bounces"]),
+            duration=float(indirect_values["duration"]),
+            order=int(indirect_values["order"]),
+            irradiance_min_distance=float(indirect_values["irradiance_min_distance"]),
+        )
+        self._reflection_simulator.run_reflections()
+        self._reflection_needs_update = False
+
 
     @staticmethod
     def _to_mono(audio_data: object):
