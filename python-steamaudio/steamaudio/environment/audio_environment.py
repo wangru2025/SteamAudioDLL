@@ -67,6 +67,7 @@ class IndirectSoundSettings:
     enabled: bool = False
     quality: str = "medium"
     mix_level: float = 1.0
+    update_rate_hz: float = 20.0
     num_rays: Optional[int] = None
     num_bounces: Optional[int] = None
     duration: Optional[float] = None
@@ -155,6 +156,8 @@ class AudioEnvironment:
         self._reflection_effects: Dict[int, ReflectionEffect] = {}
         self._last_direct_params = {}
         self._reflection_effect_signature: Optional[tuple[int, float]] = None
+        self._reflection_needs_update = True
+        self._reflection_blocks_until_update = 0
 
     def _ensure_source_exists(self, source_id: int) -> SourceConfig:
         try:
@@ -175,6 +178,7 @@ class AudioEnvironment:
     @geometry_enabled.setter
     def geometry_enabled(self, enabled: bool) -> None:
         self.settings.geometry.enabled = enabled
+        self._mark_reflections_dirty()
 
     @property
     def reflections_enabled(self) -> bool:
@@ -184,6 +188,7 @@ class AudioEnvironment:
     @reflections_enabled.setter
     def reflections_enabled(self, enabled: bool) -> None:
         self.settings.indirect.enabled = enabled
+        self._mark_reflections_dirty()
 
     def __del__(self):
         self._cleanup()
@@ -210,10 +215,12 @@ class AudioEnvironment:
     def set_reflections_enabled(self, enabled: bool) -> None:
         """Enable or disable geometry-driven reflections."""
         self.settings.indirect.enabled = enabled
+        self._mark_reflections_dirty()
 
     def set_indirect_quality(self, quality: str) -> None:
         """Set an indirect-sound quality preset."""
         self.settings.indirect.quality = quality
+        self._mark_reflections_dirty()
 
     def set_reflection_settings(
         self,
@@ -234,6 +241,7 @@ class AudioEnvironment:
             self.settings.indirect.order = order
         if irradiance_min_distance is not None:
             self.settings.indirect.irradiance_min_distance = irradiance_min_distance
+        self._mark_reflections_dirty()
 
     def set_listener(
         self,
@@ -246,6 +254,7 @@ class AudioEnvironment:
         self.listener_ahead = ahead
         self.listener_up = up
         self.simulator.set_listener(position, ahead=ahead, up=up)
+        self._mark_reflections_dirty()
 
     def add_source(self, source_id: int, config: SourceConfig) -> None:
         """Add a source to the environment."""
@@ -257,6 +266,7 @@ class AudioEnvironment:
         self._effects[source_id] = DirectEffect()
         self._reflection_effects[source_id] = self._create_reflection_effect()
         self._sources[source_id] = replace(config)
+        self._mark_reflections_dirty()
 
     def remove_source(self, source_id: int) -> None:
         """Remove a source from the environment."""
@@ -269,6 +279,7 @@ class AudioEnvironment:
         del self._reflection_effects[source_id]
         del self._sources[source_id]
         self._last_direct_params.pop(source_id, None)
+        self._mark_reflections_dirty()
 
     def update_source(self, source_id: int, **changes) -> None:
         """Update fields on an existing source config."""
@@ -282,6 +293,7 @@ class AudioEnvironment:
                     "remove and re-add the source instead"
                 )
             setattr(config, key, value)
+        self._mark_reflections_dirty()
 
     def update_sources(
         self,
@@ -374,6 +386,7 @@ class AudioEnvironment:
     def commit_geometry(self) -> None:
         """Commit any pending geometry changes for subsequent direct simulation."""
         self.scene.commit()
+        self._mark_reflections_dirty()
 
     def get_last_direct_params(self, source_id: int):
         """Retrieve the latest direct simulation params for a source."""
@@ -383,11 +396,13 @@ class AudioEnvironment:
         """Apply a balanced preset for binaural listening."""
         self.settings.indirect.quality = "medium"
         self.settings.indirect.mix_level = 1.0
+        self._mark_reflections_dirty()
 
     def configure_for_speakers(self) -> None:
         """Apply a slightly lighter indirect mix for speaker playback."""
         self.settings.indirect.quality = "low"
         self.settings.indirect.mix_level = 0.7
+        self._mark_reflections_dirty()
 
     def process(self, sources_data: Dict[int, object]) -> object:
         """Run direct simulation, apply direct effects, and mix all sources."""
@@ -457,7 +472,8 @@ class AudioEnvironment:
             order=int(indirect_values["order"]),
             irradiance_min_distance=float(indirect_values["irradiance_min_distance"]),
         )
-        self.simulator.run_reflections()
+        if self._should_run_reflections():
+            self.simulator.run_reflections()
 
         indirect_mix = np.zeros_like(direct_mix)
         for source_id in self._sources:
@@ -490,6 +506,34 @@ class AudioEnvironment:
             self._reflection_effects[source_id]._cleanup()
             self._reflection_effects[source_id] = self._create_reflection_effect()
         self._reflection_effect_signature = signature
+        self._mark_reflections_dirty()
+
+    def _mark_reflections_dirty(self) -> None:
+        self._reflection_needs_update = True
+        self._reflection_blocks_until_update = 0
+
+    def _should_run_reflections(self) -> bool:
+        if self._reflection_needs_update:
+            self._reflection_needs_update = False
+            self._reflection_blocks_until_update = self._reflection_update_interval_blocks() - 1
+            return True
+        if self._reflection_blocks_until_update > 0:
+            self._reflection_blocks_until_update -= 1
+            return False
+        self._reflection_blocks_until_update = self._reflection_update_interval_blocks() - 1
+        return True
+
+    def _reflection_update_interval_blocks(self) -> int:
+        update_rate_hz = float(self.settings.indirect.update_rate_hz)
+        if update_rate_hz <= 0.0:
+            raise InvalidParameterError("indirect update_rate_hz must be positive")
+
+        context = Context.get_instance()
+        if context is None:
+            return 1
+
+        blocks_per_second = context.sample_rate / context.frame_size
+        return max(1, int(round(blocks_per_second / update_rate_hz)))
 
     @staticmethod
     def _to_mono(audio_data: object):

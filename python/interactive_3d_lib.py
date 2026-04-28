@@ -222,6 +222,7 @@ class AudioThread(threading.Thread):
             indirect=steamaudio.IndirectSoundSettings(
                 enabled=settings.reflections_enabled,
                 quality="medium",
+                mix_level=0.45,
                 num_rays=settings.reflection_num_rays,
                 num_bounces=settings.reflection_num_bounces,
                 duration=settings.reflection_duration,
@@ -369,6 +370,7 @@ class AudioThread(threading.Thread):
                         reverb_output = self.reverb.process(interleaved)
                         output_chunk = (interleaved * 0.5 + reverb_output * 0.5).reshape(-1, 2)
 
+                    output_chunk = np.clip(output_chunk, -1.0, 1.0)
                     stream.write(output_chunk.astype(np.float32).tobytes())
 
                     if self.status_callback:

@@ -101,6 +101,7 @@ class TestAudioEnvironment:
         resolved = settings.resolved()
         assert resolved["num_rays"] == 777
         assert resolved["duration"] == pytest.approx(1.25)
+        assert settings.update_rate_hz == pytest.approx(20.0)
 
     def test_environment_legacy_flags_do_not_override_explicit_settings_by_default(self):
         with patch("steamaudio.core.context.Context.is_initialized", return_value=True):
@@ -349,6 +350,100 @@ class TestAudioEnvironment:
 
                 np.testing.assert_allclose(output, direct_mix + reflected)
                 mock_lib.direct_simulator_run_reflections.assert_called_once_with(4000000)
+
+    def test_environment_throttles_reflection_simulation_between_blocks(self):
+        with patch("steamaudio.core.context.Context.is_initialized", return_value=True):
+            mock_lib = MagicMock()
+            mock_lib.geometry_scene_create.return_value = 2000000
+            mock_lib.direct_simulator_create.return_value = 4000000
+            mock_lib.audio_mixer_create.return_value = 1000000
+            mock_lib.direct_effect_create.return_value = 6000000
+            mock_lib.reflection_effect_create.return_value = 7000000
+
+            def fill_params(handle, source_id, params):
+                params.contents.occlusion = 0.2
+                params.contents.distance_attenuation = 0.9
+                return None
+
+            mock_lib.direct_simulator_get_direct_params.side_effect = fill_params
+
+            with patch("steamaudio.bindings.loader.get_library", return_value=mock_lib):
+                env = steamaudio.AudioEnvironment(
+                    max_sources=1,
+                    settings=steamaudio.EnvironmentSettings(
+                        indirect=steamaudio.IndirectSoundSettings(
+                            enabled=True,
+                            update_rate_hz=2.0,
+                        )
+                    ),
+                )
+                env.add_source(
+                    1,
+                    steamaudio.SourceConfig(position=steamaudio.Vector3(5, 0, 0)),
+                )
+                env.set_listener(steamaudio.Vector3(0, 0, 0))
+                env._reflection_effect_signature = (1, 1.5)
+
+                direct_mix = np.ones((16, 2), dtype=np.float32)
+                reflected = np.full((16, 2), 0.25, dtype=np.float32)
+                audio = np.zeros(16, dtype=np.float32)
+                fake_context = type("FakeContext", (), {"sample_rate": 100, "frame_size": 10})()
+
+                with patch.object(env._effects[1], "process", return_value=audio):
+                    with patch.object(env.mixer, "process", return_value=direct_mix):
+                        with patch.object(
+                            env._reflection_effects[1],
+                            "process",
+                            return_value=reflected,
+                        ):
+                            with patch("steamaudio.core.context.Context.get_instance", return_value=fake_context):
+                                env.process({1: audio})
+                                env.process({1: audio})
+                                env.process({1: audio})
+
+                mock_lib.direct_simulator_run_reflections.assert_called_once_with(4000000)
+
+    def test_environment_rejects_invalid_reflection_update_rate(self):
+        with patch("steamaudio.core.context.Context.is_initialized", return_value=True):
+            mock_lib = MagicMock()
+            mock_lib.geometry_scene_create.return_value = 2000000
+            mock_lib.direct_simulator_create.return_value = 4000000
+            mock_lib.audio_mixer_create.return_value = 1000000
+            mock_lib.direct_effect_create.return_value = 6000000
+            mock_lib.reflection_effect_create.return_value = 7000000
+
+            def fill_params(handle, source_id, params):
+                params.contents.occlusion = 0.2
+                params.contents.distance_attenuation = 0.9
+                return None
+
+            mock_lib.direct_simulator_get_direct_params.side_effect = fill_params
+
+            with patch("steamaudio.bindings.loader.get_library", return_value=mock_lib):
+                env = steamaudio.AudioEnvironment(
+                    max_sources=1,
+                    settings=steamaudio.EnvironmentSettings(
+                        indirect=steamaudio.IndirectSoundSettings(
+                            enabled=True,
+                            update_rate_hz=0.0,
+                        )
+                    ),
+                )
+                env.add_source(
+                    1,
+                    steamaudio.SourceConfig(position=steamaudio.Vector3(5, 0, 0)),
+                )
+                env.set_listener(steamaudio.Vector3(0, 0, 0))
+
+                with patch.object(env._effects[1], "process", return_value=np.zeros(8, dtype=np.float32)):
+                    with patch.object(env.mixer, "process", return_value=np.zeros((8, 2), dtype=np.float32)):
+                        with patch.object(
+                            env._reflection_effects[1],
+                            "process",
+                            return_value=np.zeros((8, 2), dtype=np.float32),
+                        ):
+                            with pytest.raises(steamaudio.InvalidParameterError, match="update_rate_hz"):
+                                env.process({1: np.zeros(8, dtype=np.float32)})
 
     def test_environment_can_override_settings_with_legacy_flags(self):
         with patch("steamaudio.core.context.Context.is_initialized", return_value=True):
